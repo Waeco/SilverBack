@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { obtenerCitas, eliminarCita } from '../servicios/ApiServicio'
-import { CalendarDays, Clock, XCircle, Loader2, User } from 'lucide-react'
+import { CalendarDays, Clock, XCircle, Loader2, User, Stethoscope } from 'lucide-react'
 
 const COLORES_ESTADO = {
   pendiente: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -63,9 +64,19 @@ export default function PaginaCitas() {
 
       {citas.length === 0 ? (
         <div className="tarjeta flex flex-col items-center justify-center py-16">
-          <CalendarDays className="w-12 h-12 text-texto-muted/50 mb-3" />
-          <p className="text-texto-secondary text-sm">Sin citas registradas</p>
-          <p className="text-texto-muted text-xs mt-1">Las citas aparecerán aquí cuando sean agendadas</p>
+          <CalendarDays className="w-12 h-12 text-texto-muted/40 mb-3" />
+          <p className="text-texto-secondary text-sm font-medium">Aún no tienes citas</p>
+          <p className="text-texto-muted text-xs mt-1 mb-5">
+            {usuario?.rol === 'nutriologo'
+              ? 'Los pacientes agendarán citas contigo y aparecerán aquí.'
+              : 'Explora el catálogo de nutriólogos para agendar tu primera cita.'}
+          </p>
+          {usuario?.rol !== 'nutriologo' && (
+            <Link to="/nutriologos" className="btn-primary text-sm flex items-center gap-2">
+              <Stethoscope className="w-4 h-4" />
+              Buscar Nutriólogos
+            </Link>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

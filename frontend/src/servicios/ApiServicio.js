@@ -111,4 +111,40 @@ export async function obtenerStatsAdmin() {
   return cliente.get('/admin/stats')
 }
 
+export async function adminActualizarUsuario(idUsuario, datos) {
+  return cliente.put(`/admin/usuarios/${idUsuario}`, datos)
+}
+
+export async function adminEliminarUsuario(idUsuario) {
+  return cliente.delete(`/admin/usuarios/${idUsuario}`)
+}
+
+export async function obtenerDietaPaciente(idPaciente) {
+  return cliente.get(`/dieta/${idPaciente}`)
+}
+
+export async function asignarDieta(datos) {
+  return cliente.post('/dieta', datos)
+}
+
+export async function desactivarDieta(idPlan) {
+  return cliente.delete(`/dieta/${idPlan}`)
+}
+
+export async function buscarEjercicios(termino) {
+  return cliente.get('/buscar-ejercicios', { params: { termino } })
+}
+
+export async function obtenerRutinaPaciente(idPaciente) {
+  return cliente.get(`/rutina/${idPaciente}`)
+}
+
+export async function asignarRutina(datos) {
+  return cliente.post('/rutina', datos)
+}
+
+export async function desactivarRutina(idPlan) {
+  return cliente.delete(`/rutina/${idPlan}`)
+}
+
 export default cliente

@@ -32,4 +32,7 @@ frontend/dist/
 mysql_data/
 mysql_config/
 
+# Script de inicio con claves API (usar template en su lugar)
+iniciar_servidor.ps1
+
 

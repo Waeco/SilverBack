@@ -1,6 +1,6 @@
 # SilverBack — Plataforma de Nutrición Deportiva
 
-Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dietas, citas y seguimiento de macros.
+Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dietas, rutinas de ejercicio, citas y seguimiento de macros.
 
 ## Stack Tecnológico
 
@@ -9,7 +9,7 @@ Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dieta
 | Base de datos | MySQL 8.0 |
 | Backend | Python 3.10+ (http.server nativo, sin frameworks) |
 | Frontend | React 18 + Vite + TailwindCSS + Framer Motion |
-| API externa | FatSecret (proxy vía backend) |
+| APIs externas | FatSecret (proxy OAuth 1.0a) + Wger (proxy ejercicios) |
 
 ## Requisitos
 
@@ -37,13 +37,17 @@ Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dieta
 cmd /c '"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -proot < "C:\Users\esaua\SilverBack\base_de_datos.sql"'
 ```
 
-Esto crea la base de datos `silverback_db` con 6 tablas:
+Esto crea la base de datos `silverback_db` con 10 tablas:
 - `usuarios` — Atletas, nutriólogos y admins
 - `pacientes_perfil` — Perfil extendido de atletas
 - `nutriologos_perfil` — Perfil extendido de nutriólogos
 - `comidas_diarias` — Registro de alimentos por fecha y tipo de comida
 - `citas` — Citas entre paciente y nutriólogo
 - `registro_habitos` — Resumen diario (peso, agua, calorías)
+- `planes_dieta` — Planes de dieta asignados por nutriólogos
+- `detalles_dieta` — Alimentos dentro de un plan de dieta
+- `planes_rutina` — Planes de rutina asignados por nutriólogos
+- `detalles_rutina` — Ejercicios dentro de un plan de rutina
 
 ### Usuarios de prueba (seed data)
 
@@ -116,7 +120,12 @@ El servidor inicia en `http://localhost:8000` y sirve:
 #### FatSecret (proxy)
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/buscar-alimentos?termino=pollo` | Buscar alimentos (simulado sin credenciales) |
+| GET | `/api/buscar-alimentos?termino=pollo` | Buscar alimentos vía FatSecret OAuth 1.0a |
+
+#### Wger (proxy)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/buscar-ejercicios?termino=press` | Buscar ejercicios vía Wger API v2 |
 
 #### Citas
 | Método | Ruta | Descripción |
@@ -146,6 +155,22 @@ El servidor inicia en `http://localhost:8000` y sirve:
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/api/admin/stats` | Estadísticas del sistema (usuarios, citas, etc.) |
+| PUT | `/api/admin/usuarios/{id}` | Actualizar usuario (admin) |
+| DELETE | `/api/admin/usuarios/{id}` | Eliminar usuario con cascade (admin) |
+
+#### Dieta
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/dieta/{id_paciente}` | Obtener plan de dieta activo |
+| POST | `/api/dieta` | Asignar plan de dieta |
+| DELETE | `/api/dieta/{id_plan}` | Desactivar plan de dieta |
+
+#### Rutina
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/rutina/{id_paciente}` | Obtener plan de rutina activo |
+| POST | `/api/rutina` | Asignar plan de rutina |
+| DELETE | `/api/rutina/{id_plan}` | Desactivar plan de rutina |
 
 #### Salud
 | Método | Ruta | Descripción |
@@ -185,12 +210,13 @@ Genera los archivos estáticos en `frontend/dist/`, que el backend sirve automá
 |------|--------|-----|-------------|
 | `/login` | Login | Todos | Inicio de sesión con credenciales de prueba |
 | `/registro` | Registro | Todos | Crear cuenta (atleta o nutriólogo) |
-| `/dashboard` | Dashboard | Todos | Vista adaptada al rol (atleta: comidas; nutriólogo: citas+pacientes; admin: stats) |
+| `/dashboard` | Dashboard | Todos | Vista adaptada al rol (atleta: anillo progreso + timeline; nutriólogo: citas+pacientes; admin: stats) |
 | `/dieta` | Dieta | Atleta | Vista detallada de la dieta del día seleccionado |
+| `/rutina` | Rutina | Atleta | Rutina de ejercicios (asignada por nutriólogo o propia) |
 | `/nutriologos` | Nutriólogos | Atleta | Catálogo de nutriólogos con búsqueda y paginación |
 | `/citas` | Citas | Todos | Lista de citas con estado, cancelación y filtro por rol |
-| `/pacientes` | Pacientes | Nutriólogo | Lista de pacientes asignados con datos de perfil |
-| `/admin/usuarios` | Usuarios | Admin | Listado completo de usuarios del sistema |
+| `/pacientes` | Pacientes | Nutriólogo | Lista de pacientes asignados con botones Dieta + Rutina |
+| `/admin/usuarios` | Usuarios | Admin | CRUD completo de usuarios del sistema |
 | `/perfil` | Perfil | Todos | Editar información personal |
 
 > La barra de navegación se adapta automáticamente según el rol del usuario autenticado.
@@ -201,21 +227,34 @@ Genera los archivos estáticos en `frontend/dist/`, que el backend sirve automá
 
 El backend actúa como proxy hacia la API de FatSecret.
 
-### Modo simulación (por defecto)
+### FatSecret (proxy OAuth 1.0a)
 
-Sin credenciales configuradas, `buscar_alimentos()` devuelve 10 alimentos simulados (avena, huevo, pollo, etc.).
-
-### Modo real
-
-Configurar las variables de entorno antes de iniciar el servidor:
+El backend firma cada solicitud con OAuth 1.0a usando credenciales del panel **REST API OAuth 1.0 Credentials** de FatSecret.
 
 ```powershell
 $env:FATSECRET_CLIENT_ID='TU_CLIENTE_ID'
 $env:FATSECRET_CLIENT_SECRET='TU_CLIENTE_SECRETO'
-python backend\servidor.py
 ```
 
-Con credenciales válidas, el backend firma cada solicitud con OAuth 1.0a y consulta la API real de FatSecret.
+Sin credenciales → devuelve 10 alimentos simulados (avena, pollo, salmón, etc.).
+
+### Wger (proxy ejercicios)
+
+El backend busca ejercicios usando el endpoint `exercise-translation` de Wger API v2.
+
+```powershell
+$env:WGER_API_KEY='TU_API_KEY'
+```
+
+Sin clave → devuelve 15 ejercicios simulados (flexiones, sentadillas, press, etc.). La API pública de Wger funciona sin clave (con rate limiting).
+
+### Script de inicio
+
+```powershell
+.\iniciar_servidor.ps1
+```
+
+Configura automáticamente las variables de entorno y arranca el servidor en el puerto 8000.
 
 ---
 
@@ -224,41 +263,47 @@ Con credenciales válidas, el backend firma cada solicitud con OAuth 1.0a y cons
 ```
 SilverBack/
 ├── backend/
-│   ├── configuracion_bd.py     # Conexión MySQL
-│   ├── conector_fatsecret.py   # Proxy hacia FatSecret
-│   └── servidor.py             # Servidor HTTP + API REST
+│   ├── configuracion_bd.py        # Conexión MySQL
+│   ├── conector_fatsecret.py      # Proxy OAuth 1.0a hacia FatSecret
+│   ├── conector_wger.py           # Proxy hacia Wger API v2
+│   └── servidor.py                # Servidor HTTP + API REST (~1060 líneas)
 ├── frontend/
-│   ├── index.html              # Entry point HTML
-│   ├── package.json            # Dependencias Node
-│   ├── vite.config.js          # Configuración Vite
-│   ├── tailwind.config.js      # Configuración TailwindCSS
-│   ├── postcss.config.js       # Configuración PostCSS
+│   ├── index.html                 # Entry point HTML con Google Fonts
+│   ├── package.json               # Dependencias Node
+│   ├── vite.config.js             # Configuración Vite
+│   ├── tailwind.config.js         # Configuración TailwindCSS
+│   ├── postcss.config.js          # Configuración PostCSS
 │   └── src/
-│       ├── main.jsx            # Entry point React
-│       ├── index.css           # Estilos globales + Tailwind
-│       ├── App.jsx             # Router principal
+│       ├── main.jsx               # Entry point React
+│       ├── index.css              # Estilos globales + Tailwind + SweetAlert2 oscuro
+│       ├── App.jsx                # Router plano con rutas protegidas
 │       ├── context/
-│       │   └── ContextoAutenticacion.jsx  # Sesión de usuario
+│       │   └── ContextoAutenticacion.jsx  # Sesión de usuario (localStorage)
 │       ├── servicios/
-│       │   └── ApiServicio.js  # Cliente Axios para API
+│       │   ├── ApiServicio.js     # Cliente Axios para todos los endpoints
+│       │   └── AlertasServicio.js # Wrapper SweetAlert2 con tema oscuro
 │       ├── componentes/
-│       │   ├── VistaCalendario.jsx     # Calendario de comidas
-│       │   ├── ModalAgregarComida.jsx  # Modal búsqueda FatSecret
-│       │   └── BarraNavegacion.jsx     # Sidebar de navegación
+│       │   ├── BarraNavegacion.jsx      # Sidebar multirol con indicador activo
+│       │   ├── VistaCalendario.jsx      # Calendario de comidas + dieta blocker
+│       │   ├── ModalAgregarComida.jsx   # Modal búsqueda FatSecret
+│       │   ├── EditorDietaPaciente.jsx  # Modal plan de dieta (nutriólogo)
+│       │   └── EditorRutinaPaciente.jsx # Modal plan de rutina (nutriólogo)
 │       └── paginas/
-│           ├── Dashboard.jsx           # Panel principal (vista por rol)
-│           ├── PaginaLogin.jsx         # Inicio de sesión
-│           ├── PaginaRegistro.jsx      # Registro de usuarios
-│           ├── PaginaPerfil.jsx        # Editar perfil
-│           ├── PaginaCitas.jsx         # Gestión de citas
-│           ├── PaginaDieta.jsx         # Dieta detallada (atleta)
-│           ├── CatalogoNutriologos.jsx # Catálogo con búsqueda (atleta)
-│           ├── PaginaPacientes.jsx     # Pacientes asignados (nutriólogo)
-│           └── PaginaAdminUsuarios.jsx # Listado de usuarios (admin)
-├── mysql_data/                    # Datos de MySQL (local)
+│           ├── Dashboard.jsx            # Anillo progreso SVG + timeline (rol-aware)
+│           ├── PaginaLogin.jsx          # Inicio de sesión
+│           ├── PaginaRegistro.jsx       # Registro de usuarios
+│           ├── PaginaPerfil.jsx         # Editar perfil
+│           ├── PaginaCitas.jsx          # Gestión de citas
+│           ├── PaginaDieta.jsx          # Dieta detallada (atleta)
+│           ├── PaginaRutina.jsx         # Rutina de ejercicios (atleta)
+│           ├── CatalogoNutriologos.jsx  # Catálogo con búsqueda (atleta)
+│           ├── PaginaPacientes.jsx      # Pacientes + botones Dieta/Rutina
+│           └── PaginaAdminUsuarios.jsx  # CRUD usuarios (admin)
+├── mysql_data/                       # Datos de MySQL (local)
 ├── mysql_config/
-│   └── my.ini                     # Config MySQL opcional
-├── base_de_datos.sql              # Script de BD completo
+│   └── my.ini                        # Config MySQL opcional
+├── iniciar_servidor.ps1              # Script de inicio con env vars
+├── base_de_datos.sql                 # Script de BD completo (10 tablas + seed)
 └── README.md
 ```
 
@@ -270,8 +315,9 @@ SilverBack/
 # Terminal 1: Iniciar MySQL
 & "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe" --no-defaults --datadir=C:\Users\esaua\SilverBack\mysql_data --port=3306 --console
 
-# Terminal 2: Iniciar Backend
-python backend\servidor.py
+# Terminal 2: Iniciar Backend (con env vars)
+.\iniciar_servidor.ps1
+# O manualmente: python backend\servidor.py
 
 # Terminal 3: Iniciar Frontend (desarrollo)
 cd frontend; npm run dev
@@ -293,4 +339,8 @@ cd frontend; npm run dev
 - **Catálogo nutriólogos**: Los atletas pueden buscar nutriólogos por nombre o especialidad con paginación.
 - **Pacientes**: Los nutriólogos tienen acceso a la lista de pacientes asignados.
 - **Admin**: Panel con estadísticas del sistema y listado completo de usuarios.
-- **FatSecret**: Proxy OAuth 1.0a implementado; solo falta agregar credenciales reales.
+- **FatSecret**: Proxy OAuth 1.0a implementado y funcional con credenciales reales.
+- **Wger**: Proxy Wger API v2 para búsqueda de ejercicios e imágenes.
+- **Dieta/Rutina blocker**: Si el nutriólogo asigna un plan, el atleta no puede modificarlo (solo visualiza).
+- **SweetAlert2**: Alertas con tema oscuro consistente con la UI.
+- **Tipografía triple**: Bebas Neue (display), Inter (cuerpo), JetBrains Mono (datos/macros).

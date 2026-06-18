@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { obtenerPacientes } from '../servicios/ApiServicio'
-import { Users, Loader2, Activity, Target, Ruler } from 'lucide-react'
+import { Users, Loader2, Activity, Target, Ruler, CalendarDays, ClipboardList, Dumbbell } from 'lucide-react'
+import EditorDietaPaciente from '../componentes/EditorDietaPaciente'
+import EditorRutinaPaciente from '../componentes/EditorRutinaPaciente'
 
 export default function PaginaPacientes() {
   const { usuario } = useAutenticacion()
   const [pacientes, setPacientes] = useState([])
   const [cargando, setCargando] = useState(true)
+  const [pacienteDieta, setPacienteDieta] = useState(null)
+  const [pacienteRutina, setPacienteRutina] = useState(null)
 
   useEffect(() => {
     if (!usuario) return
@@ -41,9 +46,13 @@ export default function PaginaPacientes() {
 
       {pacientes.length === 0 ? (
         <div className="tarjeta flex flex-col items-center justify-center py-16">
-          <Users className="w-12 h-12 text-texto-muted/50 mb-3" />
-          <p className="text-texto-secondary text-sm">Sin pacientes asignados</p>
-          <p className="text-texto-muted text-xs mt-1">Los pacientes aparecerán aquí cuando te sean asignados</p>
+          <Users className="w-12 h-12 text-texto-muted/40 mb-3" />
+          <p className="text-texto-secondary text-sm font-medium">Sin pacientes asignados</p>
+          <p className="text-texto-muted text-xs mt-1 mb-5">Aún no tienes pacientes asignados. Cuando un atleta te seleccione como su nutriólogo, aparecerá aquí.</p>
+          <Link to="/citas" className="btn-primary text-sm flex items-center gap-2">
+            <CalendarDays className="w-4 h-4" />
+            Ver mis citas
+          </Link>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -90,11 +99,44 @@ export default function PaginaPacientes() {
                       {p.objetivo}
                     </p>
                   )}
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => setPacienteDieta(p)}
+                      className="btn-secondary text-xs flex items-center gap-1.5 px-3 py-1.5"
+                    >
+                      <ClipboardList className="w-3.5 h-3.5" />
+                      Plan de Dieta
+                    </button>
+                    <button
+                      onClick={() => setPacienteRutina(p)}
+                      className="btn-secondary text-xs flex items-center gap-1.5 px-3 py-1.5"
+                    >
+                      <Dumbbell className="w-3.5 h-3.5" />
+                      Rutina de Ejercicios
+                    </button>
+                  </div>
                 </div>
               </div>
             </motion.div>
           ))}
         </div>
+      )}
+
+      {usuario && (
+        <EditorDietaPaciente
+          abierto={!!pacienteDieta}
+          onCerrar={() => setPacienteDieta(null)}
+          paciente={pacienteDieta}
+          idNutriologo={usuario.id_usuario}
+        />
+      )}
+      {usuario && (
+        <EditorRutinaPaciente
+          abierto={!!pacienteRutina}
+          onCerrar={() => setPacienteRutina(null)}
+          paciente={pacienteRutina}
+          idNutriologo={usuario.id_usuario}
+        />
       )}
     </motion.div>
   )

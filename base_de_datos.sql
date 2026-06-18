@@ -108,6 +108,71 @@ CREATE TABLE IF NOT EXISTS registro_habitos (
 ) ENGINE=InnoDB;
 
 -- ============================================================
+-- TABLA: planes_dieta
+-- ============================================================
+CREATE TABLE IF NOT EXISTS planes_dieta (
+  id_plan         INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente     INT NOT NULL,
+  id_nutriologo   INT NOT NULL,
+  activo          TINYINT(1)   NOT NULL DEFAULT 1,
+  fecha_asignado  DATE         NOT NULL DEFAULT (CURRENT_DATE),
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
+  INDEX idx_plan_paciente (id_paciente, activo)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: detalles_dieta
+-- ============================================================
+CREATE TABLE IF NOT EXISTS detalles_dieta (
+  id_detalle            INT AUTO_INCREMENT PRIMARY KEY,
+  id_plan               INT NOT NULL,
+  tipo_comida           ENUM('desayuno', 'colacion_1', 'comida', 'colacion_2', 'cena') NOT NULL,
+  nombre_alimento       VARCHAR(200) NOT NULL,
+  cantidad              DECIMAL(8,2) NOT NULL DEFAULT 100,
+  unidad                VARCHAR(20)  NOT NULL DEFAULT 'g',
+  calorias_totales      DECIMAL(8,2) NOT NULL DEFAULT 0,
+  proteinas_totales     DECIMAL(8,2) NOT NULL DEFAULT 0,
+  grasas_totales        DECIMAL(8,2) NOT NULL DEFAULT 0,
+  carbohidratos_totales DECIMAL(8,2) NOT NULL DEFAULT 0,
+  FOREIGN KEY (id_plan) REFERENCES planes_dieta(id_plan) ON DELETE CASCADE,
+  INDEX idx_detalle_plan (id_plan)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: planes_rutina
+-- ============================================================
+CREATE TABLE IF NOT EXISTS planes_rutina (
+  id_plan         INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente     INT NOT NULL,
+  id_nutriologo   INT DEFAULT NULL,
+  activo          TINYINT(1)   NOT NULL DEFAULT 1,
+  fecha_asignado  DATE         NOT NULL DEFAULT (CURRENT_DATE),
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE SET NULL,
+  INDEX idx_rutina_paciente (id_paciente, activo)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: detalles_rutina
+-- ============================================================
+CREATE TABLE IF NOT EXISTS detalles_rutina (
+  id_detalle          INT AUTO_INCREMENT PRIMARY KEY,
+  id_plan             INT NOT NULL,
+  id_ejercicio        VARCHAR(50)  DEFAULT NULL,
+  nombre_ejercicio    VARCHAR(200) NOT NULL,
+  descripcion         TEXT         DEFAULT NULL,
+  series              INT          NOT NULL DEFAULT 3,
+  repeticiones        VARCHAR(50)  NOT NULL DEFAULT '10',
+  descanso            VARCHAR(50)  DEFAULT '60 seg',
+  imagen_url          VARCHAR(500) DEFAULT NULL,
+  video_url           VARCHAR(500) DEFAULT NULL,
+  orden               INT          NOT NULL DEFAULT 0,
+  FOREIGN KEY (id_plan) REFERENCES planes_rutina(id_plan) ON DELETE CASCADE,
+  INDEX idx_detalle_rutina_plan (id_plan)
+) ENGINE=InnoDB;
+
+-- ============================================================
 -- DATOS DE PRUEBA (SEED)
 -- ============================================================
 INSERT INTO usuarios (nombre_completo, correo, contrasena_hash, rol) VALUES

@@ -9,7 +9,7 @@ CONFIG = {
     'database': 'silverback_db',
     'charset': 'utf8mb4',
     'collation': 'utf8mb4_unicode_ci',
-    'raise_on_warnings': True
+    'raise_on_warnings': False
 }
 
 

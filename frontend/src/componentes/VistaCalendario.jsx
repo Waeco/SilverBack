@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import Calendar from 'react-calendar'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Utensils, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
-import { obtenerComidas, eliminarComida, obtenerDiasConComidas } from '../servicios/ApiServicio'
+import { Utensils, Plus, Trash2, ChevronLeft, ChevronRight, Stethoscope, Ban } from 'lucide-react'
+import { obtenerComidas, eliminarComida, obtenerDiasConComidas, obtenerDietaPaciente } from '../servicios/ApiServicio'
 import ModalAgregarComida from './ModalAgregarComida'
 
 const COLORES_TIPO = {
@@ -40,7 +40,7 @@ function formatearFechaLegible(fecha) {
   })
 }
 
-export default function VistaCalendario({ idPaciente, onActualizarStats }) {
+export default function VistaCalendario({ idPaciente, onActualizarStats, onActualizarComidas }) {
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date())
   const [comidas, setComidas] = useState([])
   const [cargando, setCargando] = useState(false)
@@ -48,6 +48,9 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
   const [fechaStr, setFechaStr] = useState(formatearFecha(new Date()))
   const [diasConComidas, setDiasConComidas] = useState([])
   const [mesActual, setMesActual] = useState(formatearMes(new Date()))
+  const [dieta, setDieta] = useState(null)
+  const [detallesDieta, setDetallesDieta] = useState([])
+  const [cargandoDieta, setCargandoDieta] = useState(true)
 
   const cargarDiasDelMes = useCallback(async (mes) => {
     if (!idPaciente) return
@@ -73,6 +76,32 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
     }
   }, [idPaciente])
 
+  const cargarDieta = useCallback(async () => {
+    if (!idPaciente) return
+    setCargandoDieta(true)
+    try {
+      const respuesta = await obtenerDietaPaciente(idPaciente)
+      if (respuesta.data.dieta) {
+        setDieta(respuesta.data.dieta)
+        setDetallesDieta(respuesta.data.detalles || [])
+      } else {
+        setDieta(null)
+        setDetallesDieta([])
+      }
+    } catch {
+      setDieta(null)
+      setDetallesDieta([])
+    } finally {
+      setCargandoDieta(false)
+    }
+  }, [idPaciente])
+
+  useEffect(() => {
+    if (idPaciente) {
+      cargarDieta()
+    }
+  }, [idPaciente, cargarDieta])
+
   useEffect(() => {
     const fecha = formatearFecha(fechaSeleccionada)
     const mes = formatearMes(fechaSeleccionada)
@@ -95,16 +124,19 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
     }
   }, [modalAbierto, fechaStr, cargarComidas])
 
-  const totalProteinas = comidas.reduce((s, c) => s + Number(c.proteinas_totales || 0), 0)
-  const totalCarbohidratos = comidas.reduce((s, c) => s + Number(c.carbohidratos_totales || 0), 0)
-  const totalGrasas = comidas.reduce((s, c) => s + Number(c.grasas_totales || 0), 0)
-  const totalCalorias = comidas.reduce((s, c) => s + Number(c.calorias_totales || 0), 0)
+  const totalProteinas = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.proteinas_totales || 0), 0)
+  const totalCarbohidratos = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.carbohidratos_totales || 0), 0)
+  const totalGrasas = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.grasas_totales || 0), 0)
+  const totalCalorias = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.calorias_totales || 0), 0)
 
   useEffect(() => {
     if (onActualizarStats) {
       onActualizarStats({ calorias: totalCalorias, proteinas: totalProteinas, carbohidratos: totalCarbohidratos, grasas: totalGrasas })
     }
-  }, [totalCalorias, totalProteinas, totalCarbohidratos, totalGrasas, onActualizarStats])
+    if (onActualizarComidas) {
+      onActualizarComidas(dieta ? detallesDieta : comidas)
+    }
+  }, [totalCalorias, totalProteinas, totalCarbohidratos, totalGrasas, onActualizarStats, onActualizarComidas, comidas, dieta, detallesDieta])
 
   const manejarCambioFecha = (fecha) => {
     setFechaSeleccionada(fecha)
@@ -141,7 +173,8 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
   }
 
   const comidasAgrupadas = {}
-  comidas.forEach(c => {
+  const items = dieta ? detallesDieta : comidas
+  items.forEach(c => {
     const tipo = c.tipo_comida
     if (!comidasAgrupadas[tipo]) comidasAgrupadas[tipo] = []
     comidasAgrupadas[tipo].push(c)
@@ -217,13 +250,28 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
           <h2 className="text-lg font-semibold text-texto-primary capitalize">
             {formatearFechaLegible(fechaSeleccionada)}
           </h2>
-          <button onClick={() => setModalAbierto(true)} className="btn-primary flex items-center gap-2 text-sm">
-            <Plus className="w-4 h-4" />
-            Agregar Comida
-          </button>
+          {dieta ? null : (
+            <button onClick={() => setModalAbierto(true)} className="btn-primary flex items-center gap-2 text-sm">
+              <Plus className="w-4 h-4" />
+              Agregar Comida
+            </button>
+          )}
         </div>
 
-        {cargando ? (
+        {dieta && !cargandoDieta && (
+          <div className="flex items-center gap-2 mb-4 px-4 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm text-primary">
+            <Stethoscope className="w-4 h-4 flex-shrink-0" />
+            <span>Dieta asignada por tu nutriólogo — los alimentos están predefinidos.</span>
+          </div>
+        )}
+
+        {cargandoDieta ? (
+          <div className="tarjeta">
+            <div className="animate-pulse space-y-4">
+              <div className="h-64 bg-base-claro rounded-lg" />
+            </div>
+          </div>
+        ) : cargando ? (
           <div className="tarjeta">
             <div className="animate-pulse space-y-4">
               {[1, 2, 3].map(i => (
@@ -231,11 +279,15 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
               ))}
             </div>
           </div>
-        ) : comidas.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="tarjeta flex flex-col items-center justify-center py-12">
             <Utensils className="w-12 h-12 text-texto-muted/50 mb-3" />
             <p className="text-texto-secondary text-sm">Sin comidas registradas</p>
-            <p className="text-texto-muted text-xs mt-1">Selecciona un día o agrega una comida</p>
+            <p className="text-texto-muted text-xs mt-1">
+              {dieta
+                ? 'Tu nutriólogo aún no ha definido los alimentos para esta fecha.'
+                : 'Selecciona un día o agrega una comida'}
+            </p>
           </div>
         ) : (
           <AnimatePresence mode="wait">
@@ -248,8 +300,8 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
               className="space-y-3"
             >
               {Object.entries(ETIQUETAS_TIPO).map(([tipo, etiqueta]) => {
-                const items = comidasAgrupadas[tipo]
-                if (!items) return null
+                const itemsGrupo = comidasAgrupadas[tipo]
+                if (!itemsGrupo) return null
                 return (
                   <div key={tipo} className="tarjeta-hover">
                     <div className="flex items-center gap-2 mb-3">
@@ -257,30 +309,32 @@ export default function VistaCalendario({ idPaciente, onActualizarStats }) {
                         {etiqueta}
                       </span>
                       <span className="text-xs text-texto-muted">
-                        {items.length} alimento{items.length > 1 ? 's' : ''}
+                        {itemsGrupo.length} alimento{itemsGrupo.length > 1 ? 's' : ''}
                       </span>
                     </div>
                     <div className="space-y-2">
-                      {items.map((comida) => (
-                        <div key={comida.id_comida} className="flex items-center justify-between p-3 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors group">
+                      {itemsGrupo.map((item) => (
+                        <div key={item.id_detalle || item.id_comida} className="flex items-center justify-between p-3 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors group">
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-texto-primary">{comida.nombre_alimento}</p>
+                            <p className="text-sm font-medium text-texto-primary">{item.nombre_alimento}</p>
                             <p className="text-xs text-texto-muted mt-0.5">
-                              {comida.cantidad} {comida.unidad} · {Math.round(comida.calorias_totales)} kcal
+                              {item.cantidad} {item.unidad} · {Math.round(item.calorias_totales)} kcal
                             </p>
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="hidden sm:flex items-center gap-2 text-xs text-texto-muted">
-                              <span className="text-blue-400">{Math.round(comida.proteinas_totales)}g P</span>
-                              <span className="text-amber-400">{Math.round(comida.carbohidratos_totales)}g C</span>
-                              <span className="text-red-400">{Math.round(comida.grasas_totales)}g G</span>
+                              <span className="text-blue-400">{Math.round(item.proteinas_totales)}g P</span>
+                              <span className="text-amber-400">{Math.round(item.carbohidratos_totales)}g C</span>
+                              <span className="text-red-400">{Math.round(item.grasas_totales)}g G</span>
                             </div>
-                            <button
-                              onClick={() => manejarEliminarComida(comida.id_comida)}
-                              className="p-1.5 rounded-lg text-texto-muted hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {!dieta && (
+                              <button
+                                onClick={() => manejarEliminarComida(item.id_comida)}
+                                className="p-1.5 rounded-lg text-texto-muted hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}

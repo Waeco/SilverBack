@@ -59,9 +59,12 @@ export default function CatalogoNutriologos() {
         </div>
       ) : nutriologos.length === 0 ? (
         <div className="tarjeta flex flex-col items-center justify-center py-16">
-          <Stethoscope className="w-12 h-12 text-texto-muted/50 mb-3" />
-          <p className="text-texto-secondary text-sm">No se encontraron nutriólogos</p>
-          <p className="text-texto-muted text-xs mt-1">Intenta con otro término de búsqueda</p>
+          <Stethoscope className="w-12 h-12 text-texto-muted/40 mb-3" />
+          <p className="text-texto-secondary text-sm font-medium">Sin resultados</p>
+          <p className="text-texto-muted text-xs mt-1 mb-5">No encontramos nutriólogos con ese término. Intenta con otro nombre o especialidad.</p>
+          <button onClick={() => { setTermino(''); cargar(1) }} className="btn-secondary text-sm">
+            Limpiar búsqueda
+          </button>
         </div>
       ) : (
         <>

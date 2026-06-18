@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import {
   LayoutDashboard, Utensils, CalendarDays, User, Stethoscope,
-  Users, Shield, Menu, X, LogOut
+  Users, Shield, Menu, X, LogOut, Dumbbell
 } from 'lucide-react'
 
 function obtenerEnlaces(rol) {
@@ -15,6 +15,7 @@ function obtenerEnlaces(rol) {
     return [
       ...comunes,
       { a: '/dieta', etiqueta: 'Dieta', icono: Utensils },
+      { a: '/rutina', etiqueta: 'Rutina', icono: Dumbbell },
       { a: '/citas', etiqueta: 'Citas', icono: CalendarDays },
       { a: '/nutriologos', etiqueta: 'Nutriólogos', icono: Stethoscope },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
@@ -104,13 +105,16 @@ export default function BarraNavegacion({ children }) {
                       key={enlace.a}
                       to={enlace.a}
                       onClick={() => setMenuAbierto(false)}
-                      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      className={`group flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 relative ${
                         activo
                           ? 'bg-primary/10 text-primary border border-primary/20'
                           : 'text-texto-secondary hover:text-texto-primary hover:bg-base-claro border border-transparent'
                       }`}
                     >
-                      <Icono className="w-4 h-4" />
+                      {activo && (
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-primary" />
+                      )}
+                      <Icono className={`w-4 h-4 transition-transform duration-200 ${activo ? '' : 'group-hover:scale-110'}`} />
                       {enlace.etiqueta}
                     </Link>
                   )

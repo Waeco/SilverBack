@@ -15,7 +15,8 @@
     "react": "^18.2.0",
     "react-calendar": "^4.8.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.0"
+    "react-router-dom": "^6.21.0",
+    "sweetalert2": "^11.26.25"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",

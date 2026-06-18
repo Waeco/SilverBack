@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from configuracion_bd import obtener_conexion, cerrar_conexion
 from conector_fatsecret import buscar_alimentos
+from conector_wger import buscar_ejercicios
 
 RUTA_FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
 PUERTO = 8000
@@ -90,6 +91,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._obtener_dias_con_comidas(ruta)
         elif len(partes) >= 3 and partes[2] == 'buscar-alimentos':
             self._buscar_alimentos(ruta)
+        elif len(partes) >= 3 and partes[2] == 'buscar-ejercicios':
+            self._buscar_ejercicios(ruta)
         elif len(partes) >= 3 and partes[2] == 'usuario':
             if len(partes) >= 4:
                 self._obtener_usuario(partes)
@@ -103,6 +106,16 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._listar_pacientes(ruta)
         elif len(partes) >= 3 and partes[2] == 'admin' and len(partes) >= 4 and partes[3] == 'stats':
             self._admin_stats()
+        elif len(partes) >= 3 and partes[2] == 'dieta':
+            if len(partes) >= 4:
+                self._obtener_dieta_paciente(partes[3])
+            else:
+                self._enviar_error('ID de paciente requerido', 400)
+        elif len(partes) >= 3 and partes[2] == 'rutina':
+            if len(partes) >= 4:
+                self._obtener_rutina_paciente(partes[3])
+            else:
+                self._enviar_error('ID de paciente requerido', 400)
         elif len(partes) >= 3 and partes[2] == 'habitos':
             self._obtener_habitos(ruta)
         elif len(partes) >= 3 and partes[2] == 'salud':
@@ -133,6 +146,184 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._enviar_json({'fechas': fechas})
         except Exception as e:
             self._enviar_error(f'Error al obtener días con comidas: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _obtener_dieta_paciente(self, id_paciente):
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT * FROM planes_dieta WHERE id_paciente = %s AND activo = 1 ORDER BY fecha_asignado DESC LIMIT 1",
+                (int(id_paciente),)
+            )
+            plan = cursor.fetchone()
+            if not plan:
+                cursor.close()
+                self._enviar_json({'dieta': None})
+                return
+            cursor.execute(
+                "SELECT * FROM detalles_dieta WHERE id_plan = %s ORDER BY FIELD(tipo_comida, 'desayuno', 'colacion_1', 'comida', 'colacion_2', 'cena')",
+                (plan['id_plan'],)
+            )
+            detalles = cursor.fetchall()
+            cursor.close()
+            self._enviar_json({'dieta': plan, 'detalles': detalles})
+        except Exception as e:
+            self._enviar_error(f'Error al obtener dieta: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _asignar_dieta(self):
+        datos = self._leer_cuerpo()
+        id_paciente = datos.get('id_paciente')
+        id_nutriologo = datos.get('id_nutriologo')
+        detalles = datos.get('detalles', [])
+        if not id_paciente or not id_nutriologo:
+            self._enviar_error('Campos requeridos: id_paciente, id_nutriologo', 400)
+            return
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor()
+            cursor.execute(
+                "UPDATE planes_dieta SET activo = 0 WHERE id_paciente = %s AND activo = 1",
+                (int(id_paciente),)
+            )
+            cursor.execute(
+                "INSERT INTO planes_dieta (id_paciente, id_nutriologo) VALUES (%s, %s)",
+                (int(id_paciente), int(id_nutriologo))
+            )
+            id_plan = cursor.lastrowid
+            for d in detalles:
+                cursor.execute(
+                    """INSERT INTO detalles_dieta
+                       (id_plan, tipo_comida, nombre_alimento, cantidad, unidad,
+                        calorias_totales, proteinas_totales, grasas_totales, carbohidratos_totales)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (id_plan, d['tipo_comida'], d['nombre_alimento'],
+                     d.get('cantidad', 100), d.get('unidad', 'g'),
+                     d.get('calorias_totales', 0), d.get('proteinas_totales', 0),
+                     d.get('grasas_totales', 0), d.get('carbohidratos_totales', 0))
+                )
+            conexion.commit()
+            cursor.close()
+            self._enviar_json({'id_plan': id_plan, 'mensaje': 'Dieta asignada correctamente'}, 201)
+        except Exception as e:
+            self._enviar_error(f'Error al asignar dieta: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _desactivar_dieta(self, id_plan):
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor()
+            cursor.execute("UPDATE planes_dieta SET activo = 0 WHERE id_plan = %s", (int(id_plan),))
+            conexion.commit()
+            cursor.close()
+            self._enviar_json({'mensaje': 'Dieta desactivada correctamente'})
+        except Exception as e:
+            self._enviar_error(f'Error al desactivar dieta: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _obtener_rutina_paciente(self, id_paciente):
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT * FROM planes_rutina WHERE id_paciente = %s AND activo = 1 ORDER BY fecha_asignado DESC LIMIT 1",
+                (int(id_paciente),)
+            )
+            plan = cursor.fetchone()
+            if not plan:
+                cursor.close()
+                self._enviar_json({'rutina': None})
+                return
+            cursor.execute(
+                "SELECT * FROM detalles_rutina WHERE id_plan = %s ORDER BY orden ASC",
+                (plan['id_plan'],)
+            )
+            detalles = cursor.fetchall()
+            cursor.close()
+            self._enviar_json({'rutina': plan, 'detalles': detalles})
+        except Exception as e:
+            self._enviar_error(f'Error al obtener rutina: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _asignar_rutina(self):
+        datos = self._leer_cuerpo()
+        id_paciente = datos.get('id_paciente')
+        id_nutriologo = datos.get('id_nutriologo')
+        detalles = datos.get('detalles', [])
+        if not id_paciente:
+            self._enviar_error('Campo requerido: id_paciente', 400)
+            return
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor()
+            cursor.execute(
+                "UPDATE planes_rutina SET activo = 0 WHERE id_paciente = %s AND activo = 1",
+                (int(id_paciente),)
+            )
+            cursor.execute(
+                "INSERT INTO planes_rutina (id_paciente, id_nutriologo) VALUES (%s, %s)",
+                (int(id_paciente), int(id_nutriologo) if id_nutriologo else None)
+            )
+            id_plan = cursor.lastrowid
+            for i, d in enumerate(detalles):
+                cursor.execute(
+                    """INSERT INTO detalles_rutina
+                       (id_plan, id_ejercicio, nombre_ejercicio, descripcion,
+                        series, repeticiones, descanso, imagen_url, video_url, orden)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (id_plan,
+                     d.get('id_ejercicio', None),
+                     d['nombre_ejercicio'],
+                     d.get('descripcion', ''),
+                     d.get('series', 3),
+                     d.get('repeticiones', '10'),
+                     d.get('descanso', '60 seg'),
+                     d.get('imagen_url', ''),
+                     d.get('video_url', ''),
+                     i)
+                )
+            conexion.commit()
+            cursor.close()
+            self._enviar_json({'id_plan': id_plan, 'mensaje': 'Rutina asignada correctamente'}, 201)
+        except Exception as e:
+            self._enviar_error(f'Error al asignar rutina: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _desactivar_rutina(self, id_plan):
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor()
+            cursor.execute("UPDATE planes_rutina SET activo = 0 WHERE id_plan = %s", (int(id_plan),))
+            conexion.commit()
+            cursor.close()
+            self._enviar_json({'mensaje': 'Rutina desactivada correctamente'})
+        except Exception as e:
+            self._enviar_error(f'Error al desactivar rutina: {str(e)}', 500)
         finally:
             cerrar_conexion(conexion)
 
@@ -280,6 +471,15 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         resultado = buscar_alimentos(termino)
         self._enviar_json(resultado)
 
+    def _buscar_ejercicios(self, ruta):
+        params = parse_qs(ruta.query)
+        termino = params.get('termino', [None])[0]
+        if not termino:
+            self._enviar_error('Parámetro "termino" requerido', 400)
+            return
+        resultado = buscar_ejercicios(termino)
+        self._enviar_json(resultado)
+
     def _obtener_usuario(self, partes):
         if len(partes) < 4:
             self._enviar_error('ID de usuario requerido', 400)
@@ -414,6 +614,10 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._guardar_habito()
         elif len(partes) >= 3 and partes[2] == 'citas':
             self._crear_cita()
+        elif len(partes) >= 3 and partes[2] == 'dieta':
+            self._asignar_dieta()
+        elif len(partes) >= 3 and partes[2] == 'rutina':
+            self._asignar_rutina()
         else:
             self._enviar_error('Ruta API no encontrada', 404)
 
@@ -617,6 +821,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._actualizar_cita(partes[3])
         elif len(partes) >= 4 and partes[2] == 'usuario':
             self._actualizar_usuario(partes)
+        elif len(partes) >= 5 and partes[2] == 'admin' and partes[3] == 'usuarios':
+            self._admin_actualizar_usuario(partes[4])
         else:
             self._enviar_error('Ruta API no encontrada', 404)
 
@@ -705,6 +911,53 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         finally:
             cerrar_conexion(conexion)
 
+    def _admin_actualizar_usuario(self, id_usuario):
+        datos = self._leer_cuerpo()
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor()
+            campos_permitidos = ('nombre_completo', 'correo', 'rol', 'activo')
+            actualizaciones = []
+            valores = []
+            for campo in campos_permitidos:
+                if campo in datos:
+                    actualizaciones.append(f"{campo} = %s")
+                    valores.append(datos[campo])
+            if not actualizaciones:
+                self._enviar_error('No hay campos para actualizar', 400)
+                return
+            valores.append(id_usuario)
+            cursor.execute(
+                f"UPDATE usuarios SET {', '.join(actualizaciones)} WHERE id_usuario = %s",
+                valores
+            )
+            conexion.commit()
+            cursor.close()
+            self._enviar_json({'mensaje': 'Usuario actualizado correctamente'})
+        except Exception as e:
+            self._enviar_error(f'Error al actualizar usuario: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _admin_eliminar_usuario(self, id_usuario):
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor()
+            cursor.execute("DELETE FROM usuarios WHERE id_usuario = %s", (id_usuario,))
+            conexion.commit()
+            cursor.close()
+            self._enviar_json({'mensaje': 'Usuario eliminado correctamente'})
+        except Exception as e:
+            self._enviar_error(f'Error al eliminar usuario: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
     # ─── API DELETE ───────────────────────────────────────────────────────────
 
     def _manejar_api_delete(self, partes, ruta):
@@ -712,6 +965,12 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._eliminar_comida(partes[3])
         elif len(partes) >= 4 and partes[2] == 'citas':
             self._eliminar_cita(partes[3])
+        elif len(partes) >= 5 and partes[2] == 'admin' and partes[3] == 'usuarios':
+            self._admin_eliminar_usuario(partes[4])
+        elif len(partes) >= 4 and partes[2] == 'dieta':
+            self._desactivar_dieta(partes[3])
+        elif len(partes) >= 4 and partes[2] == 'rutina':
+            self._desactivar_rutina(partes[3])
         else:
             self._enviar_error('Ruta API no encontrada', 404)
 

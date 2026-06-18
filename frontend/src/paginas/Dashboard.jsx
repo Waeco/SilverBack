@@ -1,15 +1,113 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { Link } from 'react-router-dom'
 import VistaCalendario from '../componentes/VistaCalendario'
 import { obtenerUsuario, obtenerCitas, obtenerStatsAdmin, obtenerPacientes } from '../servicios/ApiServicio'
-import { Activity, Apple, Flame, TrendingUp, CalendarDays, Users, Stethoscope, Loader2, ArrowRight } from 'lucide-react'
+import { Apple, Flame, TrendingUp, CalendarDays, Users, Stethoscope, Loader2, ArrowRight, Zap, Trophy, Sun, Coffee, Moon, Utensils } from 'lucide-react'
 import { motion } from 'framer-motion'
+
+const COLORES_TIPO = {
+  desayuno: { bg: 'bg-blue-500', luz: 'bg-blue-500/20', texto: 'text-blue-400', icono: Coffee },
+  colacion_1: { bg: 'bg-yellow-500', luz: 'bg-yellow-500/20', texto: 'text-yellow-400', icono: Zap },
+  comida: { bg: 'bg-emerald-500', luz: 'bg-emerald-500/20', texto: 'text-emerald-400', icono: Sun },
+  colacion_2: { bg: 'bg-orange-500', luz: 'bg-orange-500/20', texto: 'text-orange-400', icono: Zap },
+  cena: { bg: 'bg-purple-500', luz: 'bg-purple-500/20', texto: 'text-purple-400', icono: Moon },
+}
+
+const ETIQUETAS_TIPO = {
+  desayuno: 'Desayuno',
+  colacion_1: 'Colación 1',
+  comida: 'Comida',
+  colacion_2: 'Colación 2',
+  cena: 'Cena',
+}
+
+function META_CALORIAS(rol) {
+  return rol === 'atleta' ? 2200 : 2000
+}
+
+function AnilloProgreso({ calorias, objetivo, size = 160 }) {
+  const radio = 60
+  const circunferencia = 2 * Math.PI * radio
+  const fraccion = Math.min(calorias / objetivo, 1)
+  const offset = circunferencia * (1 - fraccion)
+  const centro = size / 2
+
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={centro} cy={centro} r={radio} fill="none" stroke="currentColor" strokeWidth={8} className="text-gray-800" />
+        <circle
+          cx={centro}
+          cy={centro}
+          r={radio}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={8}
+          strokeLinecap="round"
+          strokeDasharray={circunferencia}
+          strokeDashoffset={offset}
+          className="text-primary transition-all duration-1000 ease-out"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="texto-display text-4xl text-texto-primary leading-none">{Math.round(calorias)}</span>
+        <span className="text-xs text-texto-muted mt-1 tracking-wide">de {objetivo} kcal</span>
+      </div>
+    </div>
+  )
+}
+
+function MiniTimeline({ comidas }) {
+  const agrupadas = {}
+  comidas.forEach(c => {
+    const t = c.tipo_comida
+    if (!agrupadas[t]) agrupadas[t] = []
+    agrupadas[t].push(c)
+  })
+
+  const orden = ['desayuno', 'colacion_1', 'comida', 'colacion_2', 'cena']
+
+  return (
+    <div className="space-y-0">
+      {orden.map((tipo, idx) => {
+        const items = agrupadas[tipo]
+        const config = COLORES_TIPO[tipo]
+        const Icono = config.icono
+        const ultimo = idx === orden.length - 1
+        return (
+          <div key={tipo} className="relative flex gap-3 pb-3">
+            {!ultimo && <div className="absolute left-[11px] top-7 bottom-0 w-0.5 bg-gray-800" />}
+            <div className={`relative z-10 w-6 h-6 rounded-full ${items ? config.luz : 'bg-base-claro'} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+              <Icono className={`w-3 h-3 ${items ? config.texto : 'text-texto-muted'}`} />
+            </div>
+            <div className="flex-1 min-w-0 pt-0.5">
+              <p className={`text-xs font-semibold ${items ? 'text-texto-primary' : 'text-texto-muted'}`}>
+                {ETIQUETAS_TIPO[tipo]}
+              </p>
+              {items ? (
+                <p className="text-xs text-texto-muted truncate">
+                  {items.map(i => i.nombre_alimento).join(', ')} · {items.reduce((s, i) => s + Number(i.calorias_totales), 0).toFixed(0)} kcal
+                </p>
+              ) : (
+                <p className="text-xs text-texto-muted/50 italic">Pendiente</p>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── DASHBOARD ATLETA ──────────────────────────────────────────
 
 function DashboardAtleta({ usuario }) {
   const [idPaciente, setIdPaciente] = useState(null)
   const [stats, setStats] = useState({ calorias: 0, proteinas: 0, carbohidratos: 0, grasas: 0 })
+  const [comidas, setComidas] = useState([])
   const [cargandoPerfil, setCargandoPerfil] = useState(true)
+  const meta = META_CALORIAS('atleta')
 
   useEffect(() => {
     if (!usuario) return
@@ -29,43 +127,77 @@ function DashboardAtleta({ usuario }) {
     cargarPerfil()
   }, [usuario])
 
+  const itemsStats = useMemo(() => [
+    { icon: Apple, valor: stats.proteinas, etiqueta: 'Proteína', unidad: 'g', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+    { icon: Flame, valor: stats.carbohidratos, etiqueta: 'Carbohidratos', unidad: 'g', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+    { icon: TrendingUp, valor: stats.grasas, etiqueta: 'Grasas', unidad: 'g', color: 'text-red-400', bg: 'bg-red-500/10' },
+  ], [stats])
+
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        {[
-          { icon: Apple, valor: stats.calorias, etiqueta: 'Calorías Hoy', color: 'text-emerald-400', bg: 'bg-emerald-500/10', formato: (v) => `${v.toLocaleString()} kcal` },
-          { icon: Flame, valor: stats.proteinas, etiqueta: 'Proteína', color: 'text-blue-400', bg: 'bg-blue-500/10', formato: (v) => `${Math.round(v)}g` },
-          { icon: Activity, valor: stats.carbohidratos, etiqueta: 'Carbohidratos', color: 'text-amber-400', bg: 'bg-amber-500/10', formato: (v) => `${Math.round(v)}g` },
-          { icon: TrendingUp, valor: stats.grasas, etiqueta: 'Grasas', color: 'text-red-400', bg: 'bg-red-500/10', formato: (v) => `${Math.round(v)}g` },
-        ].map((item, i) => (
+      {/* Hero */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="tarjeta-hover mb-6"
+      >
+        <div className="flex flex-col lg:flex-row items-center gap-8">
+          <AnilloProgreso calorias={stats.calorias} objetivo={meta} />
+          <div className="flex-1 w-full">
+            <p className="text-xs texto-mono text-texto-muted uppercase tracking-widest mb-1">
+              {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <h2 className="texto-display text-3xl sm:text-4xl text-texto-primary mb-4">Resumen del Día</h2>
+            {comidas.length > 0 ? (
+              <MiniTimeline comidas={comidas} />
+            ) : (
+              <div className="flex items-center gap-3 py-4">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Utensils className="w-5 h-5 text-primary" />
+                </div>
+                <p className="text-sm text-texto-secondary">
+                  Aún no has registrado comidas hoy.{' '}
+                  <span className="text-primary font-medium">Selecciona un día en el calendario para empezar.</span>
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Stats secundarios */}
+      <div className="grid grid-cols-3 gap-3 mb-8">
+        {itemsStats.map((item, i) => (
           <motion.div
             key={item.etiqueta}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.1 }}
-            className="tarjeta-hover"
+            transition={{ duration: 0.3, delay: i * 0.08 }}
+            className="tarjeta-hover flex items-center gap-3 p-4"
           >
-            <div className={`w-10 h-10 rounded-lg ${item.bg} flex items-center justify-center mb-3`}>
-              <item.icon className={`w-5 h-5 ${item.color}`} />
+            <div className={`w-9 h-9 rounded-lg ${item.bg} flex items-center justify-center flex-shrink-0`}>
+              <item.icon className={`w-4 h-4 ${item.color}`} />
             </div>
-            <p className="text-2xl font-bold text-texto-primary">{item.formato(item.valor)}</p>
-            <p className="text-sm text-texto-muted mt-0.5">{item.etiqueta}</p>
+            <div>
+              <p className="texto-display text-xl text-texto-primary leading-none">{Math.round(item.valor)}<span className="texto-mono text-xs text-texto-muted ml-0.5">{item.unidad}</span></p>
+              <p className="text-xs text-texto-muted mt-0.5">{item.etiqueta}</p>
+            </div>
           </motion.div>
         ))}
       </div>
 
+      {/* Calendario */}
       {cargandoPerfil ? (
-        <div className="tarjeta">
-          <div className="animate-pulse space-y-4">
-            <div className="h-64 bg-base-claro rounded-lg" />
-          </div>
-        </div>
+        <div className="tarjeta"><div className="animate-pulse space-y-4"><div className="h-64 bg-base-claro rounded-lg" /></div></div>
       ) : (
-        <VistaCalendario idPaciente={idPaciente} onActualizarStats={setStats} />
+        <VistaCalendario idPaciente={idPaciente} onActualizarStats={setStats} onActualizarComidas={setComidas} />
       )}
     </>
   )
 }
+
+// ─── DASHBOARD NUTRIÓLOGO ───────────────────────────────────────
 
 function DashboardNutriologo({ usuario }) {
   const [citas, setCitas] = useState([])
@@ -90,9 +222,7 @@ function DashboardNutriologo({ usuario }) {
     cargar()
   }, [usuario])
 
-  if (cargando) {
-    return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-  }
+  if (cargando) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
 
   const hoy = new Date().toISOString().split('T')[0]
   const citasHoy = citas.filter(c => c.fecha === hoy)
@@ -100,27 +230,21 @@ function DashboardNutriologo({ usuario }) {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }} className="tarjeta-hover">
-          <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center mb-3">
-            <CalendarDays className="w-5 h-5 text-blue-400" />
-          </div>
-          <p className="text-2xl font-bold text-texto-primary">{citasHoy.length}</p>
-          <p className="text-sm text-texto-muted mt-0.5">Citas hoy</p>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="tarjeta-hover">
-          <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center mb-3">
-            <Users className="w-5 h-5 text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold text-texto-primary">{pacientes.length}</p>
-          <p className="text-sm text-texto-muted mt-0.5">Pacientes asignados</p>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="tarjeta-hover">
-          <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center mb-3">
-            <CalendarDays className="w-5 h-5 text-amber-400" />
-          </div>
-          <p className="text-2xl font-bold text-texto-primary">{citas.length}</p>
-          <p className="text-sm text-texto-muted mt-0.5">Próximas citas</p>
-        </motion.div>
+        {[
+          { icon: CalendarDays, valor: citasHoy.length, etiqueta: 'Citas hoy', color: 'text-blue-400', bg: 'bg-blue-500/10', formato: (v) => `${v}` },
+          { icon: Users, valor: pacientes.length, etiqueta: 'Pacientes asignados', color: 'text-emerald-400', bg: 'bg-emerald-500/10', formato: (v) => `${v}` },
+          { icon: CalendarDays, valor: citas.length, etiqueta: 'Próximas citas', color: 'text-amber-400', bg: 'bg-amber-500/10', formato: (v) => `${v}` },
+        ].map((item, i) => (
+          <motion.div key={item.etiqueta} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="tarjeta-hover flex items-center gap-4 p-5">
+            <div className={`w-11 h-11 rounded-lg ${item.bg} flex items-center justify-center`}>
+              <item.icon className={`w-5 h-5 ${item.color}`} />
+            </div>
+            <div>
+              <p className="texto-display text-3xl text-texto-primary leading-none">{item.formato(item.valor)}</p>
+              <p className="text-xs text-texto-muted mt-0.5">{item.etiqueta}</p>
+            </div>
+          </motion.div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -132,7 +256,11 @@ function DashboardNutriologo({ usuario }) {
             </Link>
           </div>
           {citas.length === 0 ? (
-            <p className="text-sm text-texto-muted">Sin citas próximas</p>
+            <div className="flex flex-col items-center py-8">
+              <CalendarDays className="w-8 h-8 text-texto-muted/40 mb-2" />
+              <p className="text-sm text-texto-muted">Sin citas próximas</p>
+              <p className="text-xs text-texto-muted/50 mt-1">Las citas aparecerán aquí cuando los pacientes agenden</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {citas.map(c => (
@@ -160,7 +288,11 @@ function DashboardNutriologo({ usuario }) {
             </Link>
           </div>
           {pacientes.length === 0 ? (
-            <p className="text-sm text-texto-muted">Sin pacientes asignados</p>
+            <div className="flex flex-col items-center py-8">
+              <Users className="w-8 h-8 text-texto-muted/40 mb-2" />
+              <p className="text-sm text-texto-muted">Sin pacientes asignados</p>
+              <p className="text-xs text-texto-muted/50 mt-1">Pacientes aparecerán aquí cuando te sean asignados</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {pacientes.map(p => (
@@ -182,6 +314,8 @@ function DashboardNutriologo({ usuario }) {
   )
 }
 
+// ─── DASHBOARD ADMIN ────────────────────────────────────────────
+
 function DashboardAdmin() {
   const [stats, setStats] = useState(null)
   const [cargando, setCargando] = useState(true)
@@ -200,13 +334,11 @@ function DashboardAdmin() {
     cargar()
   }, [])
 
-  if (cargando) {
-    return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-  }
+  if (cargando) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
 
   const items = [
     { icon: Users, valor: stats?.total_usuarios || 0, etiqueta: 'Usuarios Totales', color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { icon: Activity, valor: stats?.total_atletas || 0, etiqueta: 'Atletas', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+    { icon: Trophy, valor: stats?.total_atletas || 0, etiqueta: 'Atletas', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
     { icon: Stethoscope, valor: stats?.total_nutriologos || 0, etiqueta: 'Nutriólogos', color: 'text-purple-400', bg: 'bg-purple-500/10' },
     { icon: CalendarDays, valor: stats?.citas_pendientes || 0, etiqueta: 'Citas Pendientes', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   ]
@@ -215,18 +347,12 @@ function DashboardAdmin() {
     <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         {items.map((item, i) => (
-          <motion.div
-            key={item.etiqueta}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.1 }}
-            className="tarjeta-hover"
-          >
+          <motion.div key={item.etiqueta} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="tarjeta-hover">
             <div className={`w-10 h-10 rounded-lg ${item.bg} flex items-center justify-center mb-3`}>
               <item.icon className={`w-5 h-5 ${item.color}`} />
             </div>
-            <p className="text-2xl font-bold text-texto-primary">{item.valor}</p>
-            <p className="text-sm text-texto-muted mt-0.5">{item.etiqueta}</p>
+            <p className="texto-display text-3xl text-texto-primary leading-none">{item.valor}</p>
+            <p className="text-xs text-texto-muted mt-1">{item.etiqueta}</p>
           </motion.div>
         ))}
       </div>
@@ -278,6 +404,8 @@ function DashboardAdmin() {
   )
 }
 
+// ─── EXPORT PRINCIPAL ───────────────────────────────────────────
+
 export default function Dashboard() {
   const { usuario } = useAutenticacion()
 
@@ -292,7 +420,7 @@ export default function Dashboard() {
   return (
     <>
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-        <h2 className="text-2xl font-bold text-texto-primary mb-6">Dashboard</h2>
+        <h2 className="texto-display text-3xl sm:text-4xl text-texto-primary mb-6">Dashboard</h2>
       </motion.div>
 
       {usuario.rol === 'nutriologo' && <DashboardNutriologo usuario={usuario} />}
