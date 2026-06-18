@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ProveedorAutenticacion, useAutenticacion } from './context/ContextoAutenticacion'
 import BarraNavegacion from './componentes/BarraNavegacion'
+import Landing from './paginas/Landing'
 import Dashboard from './paginas/Dashboard'
 import PaginaLogin from './paginas/PaginaLogin'
 import PaginaRegistro from './paginas/PaginaRegistro'
@@ -32,9 +33,10 @@ export default function App() {
         <Route path="/nutriologos" element={<RutaProtegida><CatalogoNutriologos /></RutaProtegida>} />
         <Route path="/pacientes" element={<RutaProtegida><PaginaPacientes /></RutaProtegida>} />
         <Route path="/admin/usuarios" element={<RutaProtegida><PaginaAdminUsuarios /></RutaProtegida>} />
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<PaginaLogin />} />
         <Route path="/registro" element={<PaginaRegistro />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ProveedorAutenticacion>
   )

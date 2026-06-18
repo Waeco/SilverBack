@@ -3,8 +3,8 @@ import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { Link } from 'react-router-dom'
 import VistaCalendario from '../componentes/VistaCalendario'
 import { obtenerUsuario, obtenerCitas, obtenerStatsAdmin, obtenerPacientes } from '../servicios/ApiServicio'
-import { Apple, Flame, TrendingUp, CalendarDays, Users, Stethoscope, Loader2, ArrowRight, Zap, Trophy, Sun, Coffee, Moon, Utensils } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { Apple, Flame, TrendingUp, CalendarDays, Users, Stethoscope, Loader2, ArrowRight, Zap, Trophy, Sun, Coffee, Moon, Utensils, ChevronLeft, ChevronRight } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const COLORES_TIPO = {
   desayuno: { bg: 'bg-blue-500', luz: 'bg-blue-500/20', texto: 'text-blue-400', icono: Coffee },
@@ -100,6 +100,57 @@ function MiniTimeline({ comidas }) {
   )
 }
 
+// ─── CARRUSEL DE IMÁGENES ────────────────────────────────────────
+
+function MiniCarrusel() {
+  const [actual, setActual] = useState(0)
+  const slides = [
+    {
+      /* RUTA: /images/dash-atleta-comiendo.jpg — Atleta preparando comida saludable */
+      emoji: '🥗',
+      texto: 'Planes de alimentación diseñados para tu deporte',
+    },
+    {
+      /* RUTA: /images/dash-atleta-rutina.jpg — Atleta entrenando */
+      emoji: '🏋️',
+      texto: 'Rutinas de ejercicio guiadas por tu nutriólogo',
+    },
+    {
+      /* RUTA: /images/dash-atleta-progreso.jpg — Atleta viendo métricas */
+      emoji: '📈',
+      texto: 'Seguimiento de macros y progreso en tiempo real',
+    },
+  ]
+
+  useEffect(() => {
+    const timer = setInterval(() => setActual(a => (a + 1) % slides.length), 4000)
+    return () => clearInterval(timer)
+  }, [slides.length])
+
+  return (
+    <div className="relative w-full lg:w-56 h-40 lg:h-48 rounded-xl overflow-hidden bg-gradient-to-br from-primary/10 via-base-claro to-secondary/10 border border-gray-800/30 flex-shrink-0">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={actual}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.3 }}
+          className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center"
+        >
+          <span className="text-4xl mb-2">{slides[actual].emoji}</span>
+          <p className="text-xs text-texto-muted leading-relaxed">{slides[actual].texto}</p>
+        </motion.div>
+      </AnimatePresence>
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+        {slides.map((_, i) => (
+          <button key={i} onClick={() => setActual(i)} className={`w-1.5 h-1.5 rounded-full transition-all ${i === actual ? 'bg-primary w-4' : 'bg-gray-600'}`} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── DASHBOARD ATLETA ──────────────────────────────────────────
 
 function DashboardAtleta({ usuario }) {
@@ -142,7 +193,7 @@ function DashboardAtleta({ usuario }) {
         transition={{ duration: 0.4 }}
         className="tarjeta-hover mb-6"
       >
-        <div className="flex flex-col lg:flex-row items-center gap-8">
+        <div className="flex flex-col lg:flex-row items-center gap-6">
           <AnilloProgreso calorias={stats.calorias} objetivo={meta} />
           <div className="flex-1 w-full">
             <p className="text-xs texto-mono text-texto-muted uppercase tracking-widest mb-1">
@@ -163,6 +214,7 @@ function DashboardAtleta({ usuario }) {
               </div>
             )}
           </div>
+          <MiniCarrusel />
         </div>
       </motion.div>
 
@@ -194,6 +246,57 @@ function DashboardAtleta({ usuario }) {
         <VistaCalendario idPaciente={idPaciente} onActualizarStats={setStats} onActualizarComidas={setComidas} />
       )}
     </>
+  )
+}
+
+// ─── MINI CARRUSEL NUTRIÓLOGO ────────────────────────────────────
+
+function MiniCarruselNutriologo() {
+  const [actual, setActual] = useState(0)
+  const slides = [
+    {
+      /* RUTA: /images/dash-nutri-consulta.jpg — Nutrióloga revisando historia clínica */
+      emoji: '📋',
+      texto: 'Gestiona pacientes y sus planes desde un solo lugar',
+    },
+    {
+      /* RUTA: /images/dash-nutri-dieta.jpg — Nutrióloga diseñando dieta */
+      emoji: '🥗',
+      texto: 'Crea dietas personalizadas con base de datos real de alimentos',
+    },
+    {
+      /* RUTA: /images/dash-nutri-rutina.jpg — Nutrióloga revisando rutina */
+      emoji: '📊',
+      texto: 'Asigna rutinas de ejercicio sincronizadas con la dieta',
+    },
+  ]
+
+  useEffect(() => {
+    const timer = setInterval(() => setActual(a => (a + 1) % slides.length), 4000)
+    return () => clearInterval(timer)
+  }, [slides.length])
+
+  return (
+    <div className="relative rounded-xl overflow-hidden bg-gradient-to-br from-primary/5 via-base-claro to-secondary/5 border border-gray-800/30 mb-6">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={actual}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.3 }}
+          className="flex items-center justify-center gap-4 p-4 sm:p-5"
+        >
+          <span className="text-3xl sm:text-4xl flex-shrink-0">{slides[actual].emoji}</span>
+          <p className="text-sm text-texto-secondary">{slides[actual].texto}</p>
+        </motion.div>
+      </AnimatePresence>
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+        {slides.map((_, i) => (
+          <button key={i} onClick={() => setActual(i)} className={`w-1.5 h-1.5 rounded-full transition-all ${i === actual ? 'bg-primary w-4' : 'bg-gray-600'}`} />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -246,6 +349,8 @@ function DashboardNutriologo({ usuario }) {
           </motion.div>
         ))}
       </div>
+
+      <MiniCarruselNutriologo />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="tarjeta-hover">
