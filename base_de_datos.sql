@@ -1,11 +1,25 @@
 -- ============================================================
 -- SILVERBACK — SCRIPT DE CONFIGURACIÓN DE BASE DE DATOS
+-- Versión mejorada: normalización, CHECKs, updated_at, FKs corregidas
 -- ============================================================
 CREATE DATABASE IF NOT EXISTS silverback_db
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
 USE silverback_db;
+
+-- Eliminar tablas existentes para recrearlas con los cambios de nombres
+DROP TABLE IF EXISTS detalles_rutina;
+DROP TABLE IF EXISTS planes_rutina;
+DROP TABLE IF EXISTS detalles_dieta;
+DROP TABLE IF EXISTS planes_dieta;
+DROP TABLE IF EXISTS comidas_diarias;
+DROP TABLE IF EXISTS citas;
+DROP TABLE IF EXISTS registro_habitos;
+DROP TABLE IF EXISTS pacientes_perfil;
+DROP TABLE IF EXISTS nutriologos_perfil;
+DROP TABLE IF EXISTS usuarios;
+DROP TABLE IF EXISTS cache_alimentos;
 
 -- ============================================================
 -- TABLA: usuarios
@@ -14,16 +28,36 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id_usuario       INT AUTO_INCREMENT PRIMARY KEY,
   nombre_completo  VARCHAR(150)  NOT NULL,
   correo           VARCHAR(200)  NOT NULL UNIQUE,
-  contrasena_hash  VARCHAR(255)  NOT NULL,
+  contrasenia_hash  VARCHAR(255)  NOT NULL,
   rol              ENUM('atleta', 'nutriologo', 'admin') NOT NULL DEFAULT 'atleta',
   fecha_registro   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   activo           TINYINT(1)    NOT NULL DEFAULT 1,
   INDEX idx_correo (correo),
   INDEX idx_rol (rol)
 ) ENGINE=InnoDB;
 
 -- ============================================================
+-- TABLA: nutriologos_perfil
+-- Debe crearse ANTES que pacientes_perfil por la FK corregida
+-- ============================================================
+CREATE TABLE IF NOT EXISTS nutriologos_perfil (
+  id_nutriologo INT AUTO_INCREMENT PRIMARY KEY,
+  id_usuario    INT NOT NULL,
+  cedula        VARCHAR(50)  NOT NULL,
+  especialidad  VARCHAR(100) DEFAULT NULL,
+  experiencia   INT          DEFAULT NULL,
+  biografia     TEXT         DEFAULT NULL,
+  verificado    TINYINT(1)   NOT NULL DEFAULT 0,
+  actualizado_en DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  UNIQUE INDEX idx_cedula (cedula),
+  INDEX idx_nutriologo_usuario (id_usuario)
+) ENGINE=InnoDB;
+
+-- ============================================================
 -- TABLA: pacientes_perfil
+-- FK id_nutriologo_asignado corregida → nutriologos_perfil
 -- ============================================================
 CREATE TABLE IF NOT EXISTS pacientes_perfil (
   id_paciente         INT AUTO_INCREMENT PRIMARY KEY,
@@ -33,25 +67,11 @@ CREATE TABLE IF NOT EXISTS pacientes_perfil (
   deporte             VARCHAR(100)  DEFAULT NULL,
   objetivo            VARCHAR(200)  DEFAULT NULL,
   id_nutriologo_asignado INT DEFAULT NULL,
+  actualizado_en      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
-  FOREIGN KEY (id_nutriologo_asignado) REFERENCES usuarios(id_usuario) ON DELETE SET NULL,
-  INDEX idx_paciente_usuario (id_usuario)
-) ENGINE=InnoDB;
-
--- ============================================================
--- TABLA: nutriologos_perfil
--- ============================================================
-CREATE TABLE IF NOT EXISTS nutriologos_perfil (
-  id_nutriologo INT AUTO_INCREMENT PRIMARY KEY,
-  id_usuario    INT NOT NULL,
-  cedula        VARCHAR(50)  NOT NULL,
-  especialidad  VARCHAR(100) DEFAULT NULL,
-  experiencia   INT DEFAULT NULL,
-  biografia     TEXT DEFAULT NULL,
-  verificado    TINYINT(1)   NOT NULL DEFAULT 0,
-  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
-  UNIQUE INDEX idx_cedula (cedula),
-  INDEX idx_nutriologo_usuario (id_usuario)
+  FOREIGN KEY (id_nutriologo_asignado) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE SET NULL,
+  INDEX idx_paciente_usuario (id_usuario),
+  INDEX idx_nutriologo_asignado (id_nutriologo_asignado)
 ) ENGINE=InnoDB;
 
 -- ============================================================
@@ -69,10 +89,12 @@ CREATE TABLE IF NOT EXISTS comidas_diarias (
   proteinas_totales     DECIMAL(8,2) NOT NULL DEFAULT 0,
   grasas_totales        DECIMAL(8,2) NOT NULL DEFAULT 0,
   carbohidratos_totales DECIMAL(8,2) NOT NULL DEFAULT 0,
+  actualizado_en        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
   INDEX idx_comida_fecha (fecha),
   INDEX idx_comida_paciente_fecha (id_paciente, fecha),
-  INDEX idx_comida_tipo (tipo_comida)
+  INDEX idx_comida_tipo (tipo_comida),
+  CONSTRAINT chk_comida_cantidad CHECK (cantidad > 0)
 ) ENGINE=InnoDB;
 
 -- ============================================================
@@ -86,6 +108,7 @@ CREATE TABLE IF NOT EXISTS citas (
   hora          TIME NOT NULL,
   estado        ENUM('pendiente', 'confirmada', 'completada', 'cancelada') NOT NULL DEFAULT 'pendiente',
   notas         TEXT DEFAULT NULL,
+  actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
   FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
   INDEX idx_cita_fecha (fecha),
@@ -103,30 +126,34 @@ CREATE TABLE IF NOT EXISTS registro_habitos (
   peso                DECIMAL(5,1) DEFAULT NULL,
   agua_litros         DECIMAL(4,2) DEFAULT NULL,
   calorias_consumidas INT DEFAULT NULL,
+  actualizado_en      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
-  UNIQUE INDEX idx_habito_fecha (id_paciente, fecha)
+  UNIQUE INDEX idx_habito_fecha (id_paciente, fecha),
+  CONSTRAINT chk_agua CHECK (agua_litros IS NULL OR agua_litros >= 0),
+  CONSTRAINT chk_calorias CHECK (calorias_consumidas IS NULL OR calorias_consumidas >= 0)
 ) ENGINE=InnoDB;
 
 -- ============================================================
 -- TABLA: planes_dieta
 -- ============================================================
 CREATE TABLE IF NOT EXISTS planes_dieta (
-  id_plan         INT AUTO_INCREMENT PRIMARY KEY,
-  id_paciente     INT NOT NULL,
-  id_nutriologo   INT NOT NULL,
-  activo          TINYINT(1)   NOT NULL DEFAULT 1,
-  fecha_asignado  DATE         NOT NULL DEFAULT (CURRENT_DATE),
+  id_plan_dieta         INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente           INT NOT NULL,
+  id_nutriologo         INT NOT NULL,
+  activo                TINYINT(1)   NOT NULL DEFAULT 1,
+  fecha_asignado        DATE         NOT NULL DEFAULT (CURRENT_DATE),
+  actualizado_en        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
   FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
-  INDEX idx_plan_paciente (id_paciente, activo)
+  INDEX idx_plan_dieta_paciente (id_paciente, activo)
 ) ENGINE=InnoDB;
 
 -- ============================================================
 -- TABLA: detalles_dieta
 -- ============================================================
 CREATE TABLE IF NOT EXISTS detalles_dieta (
-  id_detalle            INT AUTO_INCREMENT PRIMARY KEY,
-  id_plan               INT NOT NULL,
+  id_detalle_dieta       INT AUTO_INCREMENT PRIMARY KEY,
+  id_plan_dieta          INT NOT NULL,
   tipo_comida           ENUM('desayuno', 'colacion_1', 'comida', 'colacion_2', 'cena') NOT NULL,
   nombre_alimento       VARCHAR(200) NOT NULL,
   cantidad              DECIMAL(8,2) NOT NULL DEFAULT 100,
@@ -135,19 +162,21 @@ CREATE TABLE IF NOT EXISTS detalles_dieta (
   proteinas_totales     DECIMAL(8,2) NOT NULL DEFAULT 0,
   grasas_totales        DECIMAL(8,2) NOT NULL DEFAULT 0,
   carbohidratos_totales DECIMAL(8,2) NOT NULL DEFAULT 0,
-  FOREIGN KEY (id_plan) REFERENCES planes_dieta(id_plan) ON DELETE CASCADE,
-  INDEX idx_detalle_plan (id_plan)
+  FOREIGN KEY (id_plan_dieta) REFERENCES planes_dieta(id_plan_dieta) ON DELETE CASCADE,
+  INDEX idx_detalle_dieta_plan (id_plan_dieta),
+  CONSTRAINT chk_detalle_cantidad CHECK (cantidad > 0)
 ) ENGINE=InnoDB;
 
 -- ============================================================
 -- TABLA: planes_rutina
 -- ============================================================
 CREATE TABLE IF NOT EXISTS planes_rutina (
-  id_plan         INT AUTO_INCREMENT PRIMARY KEY,
-  id_paciente     INT NOT NULL,
-  id_nutriologo   INT DEFAULT NULL,
-  activo          TINYINT(1)   NOT NULL DEFAULT 1,
-  fecha_asignado  DATE         NOT NULL DEFAULT (CURRENT_DATE),
+  id_plan_rutina      INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente         INT NOT NULL,
+  id_nutriologo       INT DEFAULT NULL,
+  activo              TINYINT(1)   NOT NULL DEFAULT 1,
+  fecha_asignado      DATE         NOT NULL DEFAULT (CURRENT_DATE),
+  actualizado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
   FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE SET NULL,
   INDEX idx_rutina_paciente (id_paciente, activo)
@@ -155,11 +184,12 @@ CREATE TABLE IF NOT EXISTS planes_rutina (
 
 -- ============================================================
 -- TABLA: detalles_rutina
+-- id_ejercicio: ID numérico de wger.de (puede ser NULL si es ejercicio personalizado)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS detalles_rutina (
-  id_detalle          INT AUTO_INCREMENT PRIMARY KEY,
-  id_plan             INT NOT NULL,
-  id_ejercicio        VARCHAR(50)  DEFAULT NULL,
+  id_detalle_rutina    INT AUTO_INCREMENT PRIMARY KEY,
+  id_plan_rutina       INT NOT NULL,
+  id_ejercicio        INT          DEFAULT NULL,
   nombre_ejercicio    VARCHAR(200) NOT NULL,
   descripcion         TEXT         DEFAULT NULL,
   series              INT          NOT NULL DEFAULT 3,
@@ -168,23 +198,42 @@ CREATE TABLE IF NOT EXISTS detalles_rutina (
   imagen_url          VARCHAR(500) DEFAULT NULL,
   video_url           VARCHAR(500) DEFAULT NULL,
   orden               INT          NOT NULL DEFAULT 0,
-  FOREIGN KEY (id_plan) REFERENCES planes_rutina(id_plan) ON DELETE CASCADE,
-  INDEX idx_detalle_rutina_plan (id_plan)
+  FOREIGN KEY (id_plan_rutina) REFERENCES planes_rutina(id_plan_rutina) ON DELETE CASCADE,
+  INDEX idx_detalle_rutina_plan (id_plan_rutina),
+  CONSTRAINT chk_series CHECK (series > 0),
+  CONSTRAINT chk_orden CHECK (orden >= 0)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: cache_alimentos
+-- Cache local de búsquedas de FatSecret
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cache_alimentos (
+  id_cache        INT AUTO_INCREMENT PRIMARY KEY,
+  id_externo      VARCHAR(50)   NOT NULL,
+  nombre          VARCHAR(200)  NOT NULL,
+  descripcion     TEXT          DEFAULT NULL,
+  calorias_100g   DECIMAL(8,2)  DEFAULT 0,
+  proteinas_100g  DECIMAL(8,2)  DEFAULT 0,
+  grasas_100g     DECIMAL(8,2)  DEFAULT 0,
+  carbohidratos_100g  DECIMAL(8,2)  DEFAULT 0,
+  consultado_en   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_cache_alimento_nombre (nombre)
 ) ENGINE=InnoDB;
 
 -- ============================================================
 -- DATOS DE PRUEBA (SEED)
 -- ============================================================
-INSERT INTO usuarios (nombre_completo, correo, contrasena_hash, rol) VALUES
+INSERT INTO usuarios (nombre_completo, correo, contrasenia_hash, rol) VALUES
   ('Juan Pérez',     'juan@ejemplo.com',    SHA2('test1234', 256), 'atleta'),
   ('Dra. María García', 'maria@ejemplo.com', SHA2('test1234', 256), 'nutriologo'),
   ('Admin Sistema',  'admin@silverback.com', SHA2('admin1234', 256), 'admin');
 
-INSERT INTO pacientes_perfil (id_usuario, peso_actual, altura, deporte, objetivo, id_nutriologo_asignado) VALUES
-  (1, 72.5, 175, 'CrossFit', 'Aumento de masa muscular', 2);
-
 INSERT INTO nutriologos_perfil (id_usuario, cedula, especialidad, experiencia, biografia, verificado) VALUES
   (2, '12345678', 'Nutrición Deportiva', 10, 'Especialista en rendimiento deportivo con más de 10 años de experiencia.', 1);
+
+INSERT INTO pacientes_perfil (id_usuario, peso_actual, altura, deporte, objetivo, id_nutriologo_asignado) VALUES
+  (1, 72.5, 175, 'CrossFit', 'Aumento de masa muscular', 1);
 
 INSERT INTO comidas_diarias (id_paciente, fecha, tipo_comida, nombre_alimento, cantidad, unidad, calorias_totales, proteinas_totales, grasas_totales, carbohidratos_totales) VALUES
   (1, CURDATE(), 'desayuno', 'Avena Integral', 100, 'g', 389, 16.9, 6.9, 66.3),
@@ -194,3 +243,11 @@ INSERT INTO comidas_diarias (id_paciente, fecha, tipo_comida, nombre_alimento, c
 
 INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, estado) VALUES
   (1, 1, DATE_ADD(CURDATE(), INTERVAL 3 DAY), '10:00:00', 'confirmada');
+
+INSERT INTO planes_rutina (id_paciente, id_nutriologo, activo) VALUES
+  (1, 1, 1);
+
+INSERT INTO detalles_rutina (id_plan_rutina, nombre_ejercicio, descripcion, series, repeticiones, descanso, orden) VALUES
+  (1, 'Sentadillas', 'Ejercicio básico para piernas y glúteos. Mantén la espalda recta.', 3, '12', '60 seg', 0),
+  (1, 'Flexiones de Brazos', 'Ejercicio clásico para pecho, hombros y tríceps.', 3, '10', '45 seg', 1),
+  (1, 'Plancha', 'Ejercicio isométrico para core. Mantén el cuerpo alineado.', 3, '30 seg', '30 seg', 2);

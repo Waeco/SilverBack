@@ -445,12 +445,11 @@ function DashboardAdmin() {
     { icon: Users, valor: stats?.total_usuarios || 0, etiqueta: 'Usuarios Totales', color: 'text-blue-400', bg: 'bg-blue-500/10' },
     { icon: Trophy, valor: stats?.total_atletas || 0, etiqueta: 'Atletas', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
     { icon: Stethoscope, valor: stats?.total_nutriologos || 0, etiqueta: 'Nutriólogos', color: 'text-purple-400', bg: 'bg-purple-500/10' },
-    { icon: CalendarDays, valor: stats?.citas_pendientes || 0, etiqueta: 'Citas Pendientes', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   ]
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
         {items.map((item, i) => (
           <motion.div key={item.etiqueta} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="tarjeta-hover">
             <div className={`w-10 h-10 rounded-lg ${item.bg} flex items-center justify-center mb-3`}>
@@ -484,26 +483,6 @@ function DashboardAdmin() {
           </div>
         </div>
 
-        <div className="tarjeta-hover">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-texto-primary">Citas</h3>
-            <Link to="/citas" className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-              Ver todas <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: 'Total', count: stats?.total_citas || 0, color: 'text-blue-400' },
-              { label: 'Pendientes', count: stats?.citas_pendientes || 0, color: 'text-amber-400' },
-              { label: 'Completadas', count: (stats?.total_citas || 0) - (stats?.citas_pendientes || 0), color: 'text-emerald-400' },
-            ].map(c => (
-              <div key={c.label} className="flex justify-between items-center py-2 border-b border-gray-800/30 last:border-0">
-                <span className="text-sm text-texto-secondary">{c.label}</span>
-                <span className={`text-sm font-semibold ${c.color}`}>{c.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </>
   )

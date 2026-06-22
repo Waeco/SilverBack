@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { obtenerCitas, eliminarCita } from '../servicios/ApiServicio'
@@ -14,6 +14,8 @@ const COLORES_ESTADO = {
 
 export default function PaginaCitas() {
   const { usuario } = useAutenticacion()
+  if (usuario?.rol === 'admin') return <Navigate to="/dashboard" replace />
+
   const [citas, setCitas] = useState([])
   const [cargando, setCargando] = useState(true)
 

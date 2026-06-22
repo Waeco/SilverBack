@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Calendar from 'react-calendar'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Utensils, Plus, Trash2, ChevronLeft, ChevronRight, Stethoscope, Ban } from 'lucide-react'
+import { Utensils, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { obtenerComidas, eliminarComida, obtenerDiasConComidas, obtenerDietaPaciente } from '../servicios/ApiServicio'
 import ModalAgregarComida from './ModalAgregarComida'
 
@@ -124,19 +124,21 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
     }
   }, [modalAbierto, fechaStr, cargarComidas])
 
-  const totalProteinas = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.proteinas_totales || 0), 0)
-  const totalCarbohidratos = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.carbohidratos_totales || 0), 0)
-  const totalGrasas = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.grasas_totales || 0), 0)
-  const totalCalorias = (dieta ? detallesDieta : comidas).reduce((s, c) => s + Number(c.calorias_totales || 0), 0)
+  const itemsCombinados = dieta ? [...detallesDieta, ...comidas] : comidas
+
+  const totalProteinas = itemsCombinados.reduce((s, c) => s + Number(c.proteinas_totales || 0), 0)
+  const totalCarbohidratos = itemsCombinados.reduce((s, c) => s + Number(c.carbohidratos_totales || 0), 0)
+  const totalGrasas = itemsCombinados.reduce((s, c) => s + Number(c.grasas_totales || 0), 0)
+  const totalCalorias = itemsCombinados.reduce((s, c) => s + Number(c.calorias_totales || 0), 0)
 
   useEffect(() => {
     if (onActualizarStats) {
       onActualizarStats({ calorias: totalCalorias, proteinas: totalProteinas, carbohidratos: totalCarbohidratos, grasas: totalGrasas })
     }
     if (onActualizarComidas) {
-      onActualizarComidas(dieta ? detallesDieta : comidas)
+      onActualizarComidas(itemsCombinados)
     }
-  }, [totalCalorias, totalProteinas, totalCarbohidratos, totalGrasas, onActualizarStats, onActualizarComidas, comidas, dieta, detallesDieta])
+  }, [totalCalorias, totalProteinas, totalCarbohidratos, totalGrasas, onActualizarStats, onActualizarComidas, itemsCombinados])
 
   const manejarCambioFecha = (fecha) => {
     setFechaSeleccionada(fecha)
@@ -173,8 +175,7 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
   }
 
   const comidasAgrupadas = {}
-  const items = dieta ? detallesDieta : comidas
-  items.forEach(c => {
+  itemsCombinados.forEach(c => {
     const tipo = c.tipo_comida
     if (!comidasAgrupadas[tipo]) comidasAgrupadas[tipo] = []
     comidasAgrupadas[tipo].push(c)
@@ -250,20 +251,11 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
           <h2 className="text-lg font-semibold text-texto-primary capitalize">
             {formatearFechaLegible(fechaSeleccionada)}
           </h2>
-          {dieta ? null : (
-            <button onClick={() => setModalAbierto(true)} className="btn-primary flex items-center gap-2 text-sm">
-              <Plus className="w-4 h-4" />
-              Agregar Comida
-            </button>
-          )}
+          <button onClick={() => setModalAbierto(true)} className="btn-primary flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" />
+            Agregar Comida
+          </button>
         </div>
-
-        {dieta && !cargandoDieta && (
-          <div className="flex items-center gap-2 mb-4 px-4 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm text-primary">
-            <Stethoscope className="w-4 h-4 flex-shrink-0" />
-            <span>Dieta asignada por tu nutriólogo — los alimentos están predefinidos.</span>
-          </div>
-        )}
 
         {cargandoDieta ? (
           <div className="tarjeta">
@@ -279,15 +271,11 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
               ))}
             </div>
           </div>
-        ) : items.length === 0 ? (
+        ) : itemsCombinados.length === 0 ? (
           <div className="tarjeta flex flex-col items-center justify-center py-12">
             <Utensils className="w-12 h-12 text-texto-muted/50 mb-3" />
             <p className="text-texto-secondary text-sm">Sin comidas registradas</p>
-            <p className="text-texto-muted text-xs mt-1">
-              {dieta
-                ? 'Tu nutriólogo aún no ha definido los alimentos para esta fecha.'
-                : 'Selecciona un día o agrega una comida'}
-            </p>
+            <p className="text-texto-muted text-xs mt-1">Agrega una comida para empezar</p>
           </div>
         ) : (
           <AnimatePresence mode="wait">
@@ -314,7 +302,7 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
                     </div>
                     <div className="space-y-2">
                       {itemsGrupo.map((item) => (
-                        <div key={item.id_detalle || item.id_comida} className="flex items-center justify-between p-3 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors group">
+                        <div key={item.id_detalle_dieta || item.id_comida} className="flex items-center justify-between p-3 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors group">
                           <div className="flex-1">
                             <p className="text-sm font-medium text-texto-primary">{item.nombre_alimento}</p>
                             <p className="text-xs text-texto-muted mt-0.5">
@@ -327,7 +315,7 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
                               <span className="text-amber-400">{Math.round(item.carbohidratos_totales)}g C</span>
                               <span className="text-red-400">{Math.round(item.grasas_totales)}g G</span>
                             </div>
-                            {!dieta && (
+                            {item.id_comida && (
                               <button
                                 onClick={() => manejarEliminarComida(item.id_comida)}
                                 className="p-1.5 rounded-lg text-texto-muted hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"

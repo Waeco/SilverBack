@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Dumbbell, Plus, Trash2, ExternalLink, Search, X, Save, Target, Clock, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { Loader2, Dumbbell, Plus, Trash2, Search, X, Save, Target, Clock, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { obtenerRutinaPaciente, asignarRutina, desactivarRutina, buscarEjercicios } from '../servicios/ApiServicio'
+import { obtenerRutinaPaciente, obtenerInfoEjercicio, asignarRutina, desactivarRutina, buscarEjercicios, obtenerUsuario } from '../servicios/ApiServicio'
 import { alertaExito, alertaError } from '../servicios/AlertasServicio'
 
 export default function PaginaRutina() {
   const { usuario } = useAutenticacion()
+  const [idPaciente, setIdPaciente] = useState(null)
   const [rutinaActual, setRutinaActual] = useState(null)
   const [detalles, setDetalles] = useState([])
   const [cargando, setCargando] = useState(true)
@@ -19,12 +20,29 @@ export default function PaginaRutina() {
   const [buscando, setBuscando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [ejercicioExpandido, setEjercicioExpandido] = useState(null)
+  const [infoCargando, setInfoCargando] = useState({})
+
+  // Cargar perfil para obtener id_paciente
+  useEffect(() => {
+    if (!usuario) return
+    const cargarPerfil = async () => {
+      try {
+        const r = await obtenerUsuario(usuario.id_usuario)
+        if (r.data.usuario.perfil) {
+          setIdPaciente(r.data.usuario.perfil.id_paciente)
+        }
+      } catch {
+        setIdPaciente(null)
+      }
+    }
+    cargarPerfil()
+  }, [usuario])
 
   const cargarRutina = useCallback(async () => {
-    if (!usuario?.id) return
+    if (!idPaciente) return
     setCargando(true)
     try {
-      const respuesta = await obtenerRutinaPaciente(usuario.id)
+      const respuesta = await obtenerRutinaPaciente(idPaciente)
       const data = respuesta.data
       if (data.rutina && data.rutina.id_nutriologo) {
         setRutinaActual(data.rutina)
@@ -46,7 +64,7 @@ export default function PaginaRutina() {
     } finally {
       setCargando(false)
     }
-  }, [usuario?.id])
+  }, [idPaciente])
 
   useEffect(() => {
     cargarRutina()
@@ -120,10 +138,10 @@ export default function PaginaRutina() {
         video_url: i.video_url,
       }))
       if (rutinaActual && esPlanPropio) {
-        await desactivarRutina(rutinaActual.id_plan)
+        await desactivarRutina(rutinaActual.id_plan_rutina)
       }
       await asignarRutina({
-        id_paciente: usuario.id,
+        id_paciente: idPaciente,
         id_nutriologo: null,
         detalles: detallesEnvio,
       })
@@ -140,12 +158,37 @@ export default function PaginaRutina() {
   const eliminarRutinaPropia = async () => {
     if (!rutinaActual) return
     try {
-      await desactivarRutina(rutinaActual.id_plan)
+      await desactivarRutina(rutinaActual.id_plan_rutina)
       alertaExito('Rutina eliminada', 'Tu rutina ha sido eliminada.')
       setRutinaActual(null)
       setDetalles([])
     } catch (err) {
       alertaError('Error', err.response?.data?.error || 'Error al eliminar la rutina.')
+    }
+  }
+
+  const expandirEjercicio = async (idx, item) => {
+    if (ejercicioExpandido === idx) {
+      setEjercicioExpandido(null)
+      return
+    }
+    setEjercicioExpandido(idx)
+    if (!item.imagen_url && !item.video_url && item.id_ejercicio) {
+      setInfoCargando(prev => ({ ...prev, [idx]: true }))
+      try {
+        const resp = await obtenerInfoEjercicio(item.id_ejercicio)
+        const info = resp.data
+        if (info) {
+          setDetalles(prev => prev.map((d, i) =>
+            i === idx
+              ? { ...d, imagen_url: info.imagen || '', video_url: info.video || '', descripcion: info.descripcion || d.descripcion }
+              : d
+          ))
+        }
+      } catch {
+      } finally {
+        setInfoCargando(prev => ({ ...prev, [idx]: false }))
+      }
     }
   }
 
@@ -216,7 +259,7 @@ export default function PaginaRutina() {
         <div className="space-y-3">
           {detalles.map((item, idx) => (
             <motion.div
-              key={item.id_detalle || idx}
+              key={item.id_detalle_rutina || idx}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.05 }}
@@ -229,15 +272,19 @@ export default function PaginaRutina() {
                   </span>
                   <div>
                     <p className="text-sm font-semibold text-texto-primary">{item.nombre_ejercicio}</p>
-                    {item.descripcion && (
-                      <button
-                        onClick={() => setEjercicioExpandido(ejercicioExpandido === idx ? null : idx)}
-                        className="text-xs text-primary hover:text-primary-claro flex items-center gap-1 mt-0.5"
-                      >
-                        {ejercicioExpandido === idx ? 'Ocultar' : 'Ver detalles'}
-                        {ejercicioExpandido === idx ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => expandirEjercicio(idx, item)}
+                      className="text-xs text-primary hover:text-primary-claro flex items-center gap-1 mt-0.5"
+                    >
+                      {infoCargando[idx] ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : ejercicioExpandido === idx ? (
+                        <ChevronUp className="w-3 h-3" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3" />
+                      )}
+                      {ejercicioExpandido === idx ? 'Ocultar' : 'Ver detalles'}
+                    </button>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-xs text-texto-muted">
@@ -260,22 +307,38 @@ export default function PaginaRutina() {
                     exit={{ height: 0, opacity: 0 }}
                     className="px-4 pb-4"
                   >
-                    <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion || 'Sin descripción disponible.'}</p>
-                    {(item.imagen_url || item.video_url) && (
-                      <div className="flex gap-3 mt-2">
+                    {infoCargando[idx] ? (
+                      <div className="flex items-center gap-2 py-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        <span className="text-xs text-texto-muted">Cargando detalles...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion || 'Sin descripción disponible.'}</p>
                         {item.imagen_url && (
-                          <a href={item.imagen_url} target="_blank" rel="noopener noreferrer"
-                            className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-                            <ExternalLink className="w-3 h-3" /> Ver imagen de referencia
-                          </a>
+                          <div className="mt-3 rounded-xl overflow-hidden border border-gray-800/30">
+                            <img
+                              src={item.imagen_url}
+                              alt={item.nombre_ejercicio}
+                              className="w-full h-auto max-h-80 object-contain bg-gray-900"
+                              loading="lazy"
+                            />
+                          </div>
                         )}
                         {item.video_url && (
-                          <a href={item.video_url} target="_blank" rel="noopener noreferrer"
-                            className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-                            <ExternalLink className="w-3 h-3" /> Ver video
-                          </a>
+                          <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
+                            <iframe
+                              src={item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be')
+                                ? item.video_url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/').split('&')[0]
+                                : item.video_url}
+                              className="w-full h-full"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              title={`Video de ${item.nombre_ejercicio}`}
+                            />
+                          </div>
                         )}
-                      </div>
+                      </>
                     )}
                   </motion.div>
                 )}

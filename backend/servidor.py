@@ -6,9 +6,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from configuracion_bd import obtener_conexion, cerrar_conexion
+from configuracion_bd import obtener_conexion, cerrar_conexion, inicializar_base_datos, ejecutar_script_sql
 from conector_fatsecret import buscar_alimentos
-from conector_wger import buscar_ejercicios
+from conector_wger import buscar_ejercicios, obtener_info_ejercicio
 
 RUTA_FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
 PUERTO = 8000
@@ -116,6 +116,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 self._obtener_rutina_paciente(partes[3])
             else:
                 self._enviar_error('ID de paciente requerido', 400)
+        elif len(partes) >= 4 and partes[2] == 'ejercicio-info':
+            self._obtener_info_ejercicio(partes[3])
         elif len(partes) >= 3 and partes[2] == 'habitos':
             self._obtener_habitos(ruta)
         elif len(partes) >= 3 and partes[2] == 'salud':
@@ -157,7 +159,12 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         try:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
-                "SELECT * FROM planes_dieta WHERE id_paciente = %s AND activo = 1 ORDER BY fecha_asignado DESC LIMIT 1",
+                """SELECT pd.*, u.nombre_completo AS nombre_nutriologo
+                   FROM planes_dieta pd
+                   LEFT JOIN nutriologos_perfil np ON pd.id_nutriologo = np.id_nutriologo
+                   LEFT JOIN usuarios u ON np.id_usuario = u.id_usuario
+                   WHERE pd.id_paciente = %s AND pd.activo = 1
+                   ORDER BY pd.fecha_asignado DESC LIMIT 1""",
                 (int(id_paciente),)
             )
             plan = cursor.fetchone()
@@ -166,8 +173,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 self._enviar_json({'dieta': None})
                 return
             cursor.execute(
-                "SELECT * FROM detalles_dieta WHERE id_plan = %s ORDER BY FIELD(tipo_comida, 'desayuno', 'colacion_1', 'comida', 'colacion_2', 'cena')",
-                (plan['id_plan'],)
+                "SELECT * FROM detalles_dieta WHERE id_plan_dieta = %s ORDER BY FIELD(tipo_comida, 'desayuno', 'colacion_1', 'comida', 'colacion_2', 'cena')",
+                (plan['id_plan_dieta'],)
             )
             detalles = cursor.fetchall()
             cursor.close()
@@ -199,34 +206,34 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 "INSERT INTO planes_dieta (id_paciente, id_nutriologo) VALUES (%s, %s)",
                 (int(id_paciente), int(id_nutriologo))
             )
-            id_plan = cursor.lastrowid
+            id_plan_dieta = cursor.lastrowid
             for d in detalles:
                 cursor.execute(
                     """INSERT INTO detalles_dieta
-                       (id_plan, tipo_comida, nombre_alimento, cantidad, unidad,
+                       (id_plan_dieta, tipo_comida, nombre_alimento, cantidad, unidad,
                         calorias_totales, proteinas_totales, grasas_totales, carbohidratos_totales)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (id_plan, d['tipo_comida'], d['nombre_alimento'],
+                    (id_plan_dieta, d['tipo_comida'], d['nombre_alimento'],
                      d.get('cantidad', 100), d.get('unidad', 'g'),
                      d.get('calorias_totales', 0), d.get('proteinas_totales', 0),
                      d.get('grasas_totales', 0), d.get('carbohidratos_totales', 0))
                 )
             conexion.commit()
             cursor.close()
-            self._enviar_json({'id_plan': id_plan, 'mensaje': 'Dieta asignada correctamente'}, 201)
+            self._enviar_json({'id_plan_dieta': id_plan_dieta, 'mensaje': 'Dieta asignada correctamente'}, 201)
         except Exception as e:
             self._enviar_error(f'Error al asignar dieta: {str(e)}', 500)
         finally:
             cerrar_conexion(conexion)
 
-    def _desactivar_dieta(self, id_plan):
+    def _desactivar_dieta(self, id_plan_dieta):
         conexion = obtener_conexion()
         if not conexion:
             self._enviar_error('Error de conexión a la base de datos', 500)
             return
         try:
             cursor = conexion.cursor()
-            cursor.execute("UPDATE planes_dieta SET activo = 0 WHERE id_plan = %s", (int(id_plan),))
+            cursor.execute("UPDATE planes_dieta SET activo = 0 WHERE id_plan_dieta = %s", (int(id_plan_dieta),))
             conexion.commit()
             cursor.close()
             self._enviar_json({'mensaje': 'Dieta desactivada correctamente'})
@@ -243,7 +250,12 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         try:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
-                "SELECT * FROM planes_rutina WHERE id_paciente = %s AND activo = 1 ORDER BY fecha_asignado DESC LIMIT 1",
+                """SELECT pr.*, u.nombre_completo AS nombre_nutriologo
+                   FROM planes_rutina pr
+                   LEFT JOIN nutriologos_perfil np ON pr.id_nutriologo = np.id_nutriologo
+                   LEFT JOIN usuarios u ON np.id_usuario = u.id_usuario
+                   WHERE pr.id_paciente = %s AND pr.activo = 1
+                   ORDER BY pr.fecha_asignado DESC LIMIT 1""",
                 (int(id_paciente),)
             )
             plan = cursor.fetchone()
@@ -252,8 +264,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 self._enviar_json({'rutina': None})
                 return
             cursor.execute(
-                "SELECT * FROM detalles_rutina WHERE id_plan = %s ORDER BY orden ASC",
-                (plan['id_plan'],)
+                "SELECT * FROM detalles_rutina WHERE id_plan_rutina = %s ORDER BY orden ASC",
+                (plan['id_plan_rutina'],)
             )
             detalles = cursor.fetchall()
             cursor.close()
@@ -263,6 +275,28 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         finally:
             cerrar_conexion(conexion)
 
+    def _completar_desde_wger(self, detalle):
+        """Si el detalle tiene id_ejercicio pero le faltan descripcion/imagen/video,
+        los obtiene desde Wger."""
+        id_ej = detalle.get('id_ejercicio')
+        if not id_ej:
+            return detalle
+        necesita = not detalle.get('imagen_url') or not detalle.get('video_url') or not detalle.get('descripcion')
+        if not necesita:
+            return detalle
+        try:
+            info = obtener_info_ejercicio(id_ej)
+            if info:
+                if not detalle.get('descripcion'):
+                    detalle['descripcion'] = info.get('descripcion', '')
+                if not detalle.get('imagen_url'):
+                    detalle['imagen_url'] = info.get('imagen', '')
+                if not detalle.get('video_url'):
+                    detalle['video_url'] = info.get('video', '')
+        except Exception as e:
+            print(f'[Servidor] Error auto-completando Wger ({id_ej}): {e}')
+        return detalle
+
     def _asignar_rutina(self):
         datos = self._leer_cuerpo()
         id_paciente = datos.get('id_paciente')
@@ -271,6 +305,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         if not id_paciente:
             self._enviar_error('Campo requerido: id_paciente', 400)
             return
+        # Auto-completar datos desde Wger si hace falta
+        detalles = [self._completar_desde_wger(d) for d in detalles]
         conexion = obtener_conexion()
         if not conexion:
             self._enviar_error('Error de conexión a la base de datos', 500)
@@ -285,40 +321,40 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 "INSERT INTO planes_rutina (id_paciente, id_nutriologo) VALUES (%s, %s)",
                 (int(id_paciente), int(id_nutriologo) if id_nutriologo else None)
             )
-            id_plan = cursor.lastrowid
+            id_plan_rutina = cursor.lastrowid
             for i, d in enumerate(detalles):
                 cursor.execute(
                     """INSERT INTO detalles_rutina
-                       (id_plan, id_ejercicio, nombre_ejercicio, descripcion,
+                       (id_plan_rutina, id_ejercicio, nombre_ejercicio, descripcion,
                         series, repeticiones, descanso, imagen_url, video_url, orden)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (id_plan,
-                     d.get('id_ejercicio', None),
-                     d['nombre_ejercicio'],
+                    (id_plan_rutina,
+                     int(d['id_ejercicio']) if d.get('id_ejercicio') else None,
+                     d.get('nombre_ejercicio', 'Ejercicio'),
                      d.get('descripcion', ''),
                      d.get('series', 3),
                      d.get('repeticiones', '10'),
                      d.get('descanso', '60 seg'),
-                     d.get('imagen_url', ''),
-                     d.get('video_url', ''),
+                     d.get('imagen_url', '') or '',
+                     d.get('video_url', '') or '',
                      i)
                 )
             conexion.commit()
             cursor.close()
-            self._enviar_json({'id_plan': id_plan, 'mensaje': 'Rutina asignada correctamente'}, 201)
+            self._enviar_json({'id_plan_rutina': id_plan_rutina, 'mensaje': 'Rutina asignada correctamente'}, 201)
         except Exception as e:
             self._enviar_error(f'Error al asignar rutina: {str(e)}', 500)
         finally:
             cerrar_conexion(conexion)
 
-    def _desactivar_rutina(self, id_plan):
+    def _desactivar_rutina(self, id_plan_rutina):
         conexion = obtener_conexion()
         if not conexion:
             self._enviar_error('Error de conexión a la base de datos', 500)
             return
         try:
             cursor = conexion.cursor()
-            cursor.execute("UPDATE planes_rutina SET activo = 0 WHERE id_plan = %s", (int(id_plan),))
+            cursor.execute("UPDATE planes_rutina SET activo = 0 WHERE id_plan_rutina = %s", (int(id_plan_rutina),))
             conexion.commit()
             cursor.close()
             self._enviar_json({'mensaje': 'Rutina desactivada correctamente'})
@@ -468,8 +504,11 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         if not termino:
             self._enviar_error('Parámetro "termino" requerido', 400)
             return
-        resultado = buscar_alimentos(termino)
-        self._enviar_json(resultado)
+        try:
+            resultado = buscar_alimentos(termino)
+            self._enviar_json(resultado)
+        except RuntimeError as e:
+            self._enviar_error(str(e), 503)
 
     def _buscar_ejercicios(self, ruta):
         params = parse_qs(ruta.query)
@@ -477,8 +516,24 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         if not termino:
             self._enviar_error('Parámetro "termino" requerido', 400)
             return
-        resultado = buscar_ejercicios(termino)
-        self._enviar_json(resultado)
+        try:
+            resultado = buscar_ejercicios(termino)
+            self._enviar_json(resultado)
+        except RuntimeError as e:
+            self._enviar_error(str(e), 503)
+
+    def _obtener_info_ejercicio(self, id_ejercicio):
+        if not id_ejercicio:
+            self._enviar_error('ID de ejercicio requerido', 400)
+            return
+        try:
+            resultado = obtener_info_ejercicio(id_ejercicio)
+            if resultado is None:
+                self._enviar_error('Ejercicio no encontrado', 404)
+                return
+            self._enviar_json(resultado)
+        except RuntimeError as e:
+            self._enviar_error(str(e), 503)
 
     def _obtener_usuario(self, partes):
         if len(partes) < 4:
@@ -682,7 +737,7 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 return
             import hashlib
             hash_ingresada = hashlib.sha256(contrasena.encode('utf-8')).hexdigest()
-            if usuario['contrasena_hash'] != hash_ingresada:
+            if usuario['contrasenia_hash'] != hash_ingresada:
                 self._enviar_error('Credenciales inválidas', 401)
                 return
             self._enviar_json({
@@ -720,7 +775,7 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         try:
             cursor = conexion.cursor()
             cursor.execute(
-                "INSERT INTO usuarios (nombre_completo, correo, contrasena_hash, rol) VALUES (%s, %s, %s, %s)",
+                "INSERT INTO usuarios (nombre_completo, correo, contrasenia_hash, rol) VALUES (%s, %s, %s, %s)",
                 (nombre, correo, hash_contrasena, rol)
             )
             conexion.commit()
@@ -1052,6 +1107,20 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
 def main():
     print(f'[Servidor] Iniciando SilverBack API en http://localhost:{PUERTO}')
     print(f'[Servidor] Sirviendo frontend desde: {RUTA_FRONTEND}')
+
+    # Inicializar base de datos si no existe
+    inicializar_base_datos()
+
+    # Crear tablas y datos de prueba
+    ruta_sql = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'base_de_datos.sql')
+    if os.path.exists(ruta_sql):
+        print(f'[Servidor] Ejecutando script SQL: {ruta_sql}')
+        ejecutar_script_sql(ruta_sql)
+    else:
+        print(f'[Servidor] No se encontró {ruta_sql}, se usarán las tablas existentes si ya fueron creadas.')
+
+    # Las rutinas persisten en BD. El cache local de Wger evita llamadas repetidas.
+
     servidor = HTTPServer(('0.0.0.0', PUERTO), ManejadorSilverBack)
     try:
         servidor.serve_forever()

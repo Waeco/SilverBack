@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Search, Loader2, Plus, Trash2, Save, Dumbbell, ExternalLink } from 'lucide-react'
-import { buscarEjercicios, obtenerRutinaPaciente, asignarRutina, desactivarRutina } from '../servicios/ApiServicio'
+import { buscarEjercicios, obtenerInfoEjercicio, obtenerRutinaPaciente, asignarRutina, desactivarRutina } from '../servicios/ApiServicio'
 import { alertaExito, alertaError, alertaConfirmar } from '../servicios/AlertasServicio'
 
 export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNutriologo }) {
@@ -12,6 +12,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
   const [resultadosBusqueda, setResultadosBusqueda] = useState([])
   const [buscando, setBuscando] = useState(false)
   const [ejercicioExpandido, setEjercicioExpandido] = useState(null)
+  const [infoCargando, setInfoCargando] = useState({})
 
   const cargarRutina = useCallback(async () => {
     if (!paciente) return
@@ -64,6 +65,32 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
     setTerminoBusqueda('')
   }
 
+  const expandirEjercicio = async (item) => {
+    const idTemp = item.id_temp
+    if (ejercicioExpandido === idTemp) {
+      setEjercicioExpandido(null)
+      return
+    }
+    setEjercicioExpandido(idTemp)
+    if (!item.imagen_url && !item.video_url && item.id_ejercicio) {
+      setInfoCargando(prev => ({ ...prev, [idTemp]: true }))
+      try {
+        const resp = await obtenerInfoEjercicio(item.id_ejercicio)
+        const info = resp.data
+        if (info) {
+          setItems(prev => prev.map(i =>
+            i.id_temp === idTemp
+              ? { ...i, imagen_url: info.imagen || '', video_url: info.video || '', descripcion: info.descripcion || i.descripcion }
+              : i
+          ))
+        }
+      } catch {
+      } finally {
+        setInfoCargando(prev => ({ ...prev, [idTemp]: false }))
+      }
+    }
+  }
+
   const eliminarItem = (idTemp) => {
     setItems(items.filter(i => i.id_temp !== idTemp))
   }
@@ -110,7 +137,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
     try {
       const respuesta = await obtenerRutinaPaciente(paciente.id_paciente)
       if (respuesta.data.rutina) {
-        await desactivarRutina(respuesta.data.rutina.id_plan)
+        await desactivarRutina(respuesta.data.rutina.id_plan_rutina)
         alertaExito('Rutina eliminada', 'La rutina se ha desactivado.')
         onCerrar()
       }
@@ -208,14 +235,15 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                 </span>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium text-texto-primary">{item.nombre_ejercicio}</p>
-                                  {item.descripcion && (
-                                    <button
-                                      onClick={() => setEjercicioExpandido(ejercicioExpandido === item.id_temp ? null : item.id_temp)}
-                                      className="text-xs text-primary hover:text-primary-claro mt-0.5"
-                                    >
-                                      {ejercicioExpandido === item.id_temp ? 'Ocultar descripción' : 'Ver descripción'}
-                                    </button>
-                                  )}
+                                  <button
+                                    onClick={() => expandirEjercicio(item)}
+                                    className="text-xs text-primary hover:text-primary-claro mt-0.5 flex items-center gap-1"
+                                  >
+                                    {infoCargando[item.id_temp] ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : null}
+                                    {ejercicioExpandido === item.id_temp ? 'Ocultar detalles' : item.descripcion ? 'Ver detalles' : 'Cargar detalles'}
+                                  </button>
                                 </div>
                               </div>
                               <button onClick={() => eliminarItem(item.id_temp)} className="p-1.5 rounded text-texto-muted hover:text-error hover:bg-error/10 transition-colors flex-shrink-0">
@@ -231,22 +259,36 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                   exit={{ height: 0, opacity: 0 }}
                                   className="px-3 pb-3"
                                 >
-                                  <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion}</p>
-                                  {(item.imagen_url || item.video_url) && (
-                                    <div className="flex gap-2 mt-2">
-                                      {item.imagen_url && (
-                                        <a href={item.imagen_url} target="_blank" rel="noopener noreferrer"
-                                          className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-                                          <ExternalLink className="w-3 h-3" /> Ver imagen
-                                        </a>
-                                      )}
-                                      {item.video_url && (
-                                        <a href={item.video_url} target="_blank" rel="noopener noreferrer"
-                                          className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-                                          <ExternalLink className="w-3 h-3" /> Ver video
-                                        </a>
-                                      )}
+                                  {infoCargando[item.id_temp] ? (
+                                    <div className="flex items-center gap-2 py-2">
+                                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                      <span className="text-xs text-texto-muted">Cargando detalles...</span>
                                     </div>
+                                  ) : (
+                                    <>
+                                      {item.descripcion && (
+                                        <p className="text-xs text-texto-secondary leading-relaxed mb-2">{item.descripcion}</p>
+                                      )}
+                                      {(item.imagen_url || item.video_url) && (
+                                        <div className="flex flex-wrap gap-3 mt-2">
+                                          {item.imagen_url && (
+                                            <a href={item.imagen_url} target="_blank" rel="noopener noreferrer"
+                                              className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
+                                              <ExternalLink className="w-3 h-3" /> Ver imagen
+                                            </a>
+                                          )}
+                                          {item.video_url && (
+                                            <a href={item.video_url} target="_blank" rel="noopener noreferrer"
+                                              className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
+                                              <ExternalLink className="w-3 h-3" /> Ver video
+                                            </a>
+                                          )}
+                                        </div>
+                                      )}
+                                      {!item.descripcion && !item.imagen_url && !item.video_url && (
+                                        <p className="text-xs text-texto-muted italic">Sin información adicional disponible.</p>
+                                      )}
+                                    </>
                                   )}
                                 </motion.div>
                               )}

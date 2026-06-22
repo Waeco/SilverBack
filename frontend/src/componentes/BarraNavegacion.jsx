@@ -32,7 +32,6 @@ function obtenerEnlaces(rol) {
   if (rol === 'admin') {
     return [
       ...comunes,
-      { a: '/citas', etiqueta: 'Citas', icono: CalendarDays },
       { a: '/admin/usuarios', etiqueta: 'Usuarios', icono: Shield },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
     ]

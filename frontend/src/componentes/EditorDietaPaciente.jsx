@@ -135,7 +135,7 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
     try {
       const respuesta = await obtenerDietaPaciente(paciente.id_paciente)
       if (respuesta.data.dieta) {
-        await desactivarDieta(respuesta.data.dieta.id_plan)
+        await desactivarDieta(respuesta.data.dieta.id_plan_dieta)
         alertaExito('Dieta eliminada', 'La dieta se ha desactivado.')
         onCerrar()
       }

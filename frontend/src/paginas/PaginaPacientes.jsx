@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { obtenerPacientes } from '../servicios/ApiServicio'
+import { obtenerPacientes, obtenerUsuario } from '../servicios/ApiServicio'
 import { Users, Loader2, Activity, Target, Ruler, CalendarDays, ClipboardList, Dumbbell } from 'lucide-react'
 import EditorDietaPaciente from '../componentes/EditorDietaPaciente'
 import EditorRutinaPaciente from '../componentes/EditorRutinaPaciente'
@@ -13,6 +13,22 @@ export default function PaginaPacientes() {
   const [cargando, setCargando] = useState(true)
   const [pacienteDieta, setPacienteDieta] = useState(null)
   const [pacienteRutina, setPacienteRutina] = useState(null)
+  const [idNutriologo, setIdNutriologo] = useState(null)
+
+  useEffect(() => {
+    if (!usuario) return
+    const cargarPerfil = async () => {
+      try {
+        const r = await obtenerUsuario(usuario.id_usuario)
+        if (r.data.usuario.perfil) {
+          setIdNutriologo(r.data.usuario.perfil.id_nutriologo)
+        }
+      } catch {
+        setIdNutriologo(null)
+      }
+    }
+    cargarPerfil()
+  }, [usuario])
 
   useEffect(() => {
     if (!usuario) return
@@ -122,20 +138,20 @@ export default function PaginaPacientes() {
         </div>
       )}
 
-      {usuario && (
+      {usuario && idNutriologo && (
         <EditorDietaPaciente
           abierto={!!pacienteDieta}
           onCerrar={() => setPacienteDieta(null)}
           paciente={pacienteDieta}
-          idNutriologo={usuario.id_usuario}
+          idNutriologo={idNutriologo}
         />
       )}
-      {usuario && (
+      {usuario && idNutriologo && (
         <EditorRutinaPaciente
           abierto={!!pacienteRutina}
           onCerrar={() => setPacienteRutina(null)}
           paciente={pacienteRutina}
-          idNutriologo={usuario.id_usuario}
+          idNutriologo={idNutriologo}
         />
       )}
     </motion.div>

@@ -135,6 +135,10 @@ export async function buscarEjercicios(termino) {
   return cliente.get('/buscar-ejercicios', { params: { termino } })
 }
 
+export async function obtenerInfoEjercicio(idEjercicio) {
+  return cliente.get(`/ejercicio-info/${idEjercicio}`)
+}
+
 export async function obtenerRutinaPaciente(idPaciente) {
   return cliente.get(`/rutina/${idPaciente}`)
 }
