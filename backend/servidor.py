@@ -845,8 +845,13 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         id_nutriologo = datos.get('id_nutriologo')
         fecha = datos.get('fecha')
         hora = datos.get('hora')
+        tipo = datos.get('tipo', 'presencial')
+        notas = datos.get('notas')
         if not all([id_paciente, id_nutriologo, fecha, hora]):
             self._enviar_error('Campos requeridos: id_paciente, id_nutriologo, fecha, hora', 400)
+            return
+        if tipo not in ('videollamada', 'presencial'):
+            self._enviar_error('Tipo debe ser videollamada o presencial', 400)
             return
         conexion = obtener_conexion()
         if not conexion:
@@ -855,8 +860,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         try:
             cursor = conexion.cursor()
             cursor.execute(
-                "INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora) VALUES (%s, %s, %s, %s)",
-                (id_paciente, id_nutriologo, fecha, hora)
+                "INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, tipo, notas) VALUES (%s, %s, %s, %s, %s, %s)",
+                (id_paciente, id_nutriologo, fecha, hora, tipo, notas)
             )
             conexion.commit()
             id_cita = cursor.lastrowid

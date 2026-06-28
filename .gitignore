@@ -32,6 +32,9 @@ frontend/dist/
 mysql_data/
 mysql_config/
 
+# opencode
+.opencode/
+
 # Script de inicio con claves API (usar template en su lugar)
 iniciar_servidor.ps1
 

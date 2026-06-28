@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CLAVE_API = os.environ.get('WGER_API_KEY', '')
 URL_BASE = 'https://wger.de/api/v2'
-IDIOMA = 2  # 2 = Spanish
+IDIOMA = 4  # 4 = Spanish (wger language ID)
 
 
 def _headers():

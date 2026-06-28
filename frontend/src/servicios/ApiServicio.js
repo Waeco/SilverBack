@@ -131,6 +131,14 @@ export async function desactivarDieta(idPlan) {
   return cliente.delete(`/dieta/${idPlan}`)
 }
 
+// --- Cliente FastAPI (puerto 8001) ---
+const clienteFast = axios.create({
+  baseURL: 'http://localhost:8001/api',
+  timeout: 10000,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+// --- Viejos endpoints (http.server puerto 8000) ---
 export async function buscarEjercicios(termino) {
   return cliente.get('/buscar-ejercicios', { params: { termino } })
 }
@@ -149,6 +157,72 @@ export async function asignarRutina(datos) {
 
 export async function desactivarRutina(idPlan) {
   return cliente.delete(`/rutina/${idPlan}`)
+}
+
+// --- Nuevos endpoints FastAPI (baja latencia, mirror local wger) ---
+
+export async function buscarEjerciciosFast(termino) {
+  return clienteFast.get('/ejercicios/buscar', { params: { q: termino } })
+}
+
+export async function obtenerEjercicioFast(idEjercicio) {
+  return clienteFast.get(`/ejercicios/${idEjercicio}`)
+}
+
+export async function obtenerRutinaPacienteFast(idPaciente) {
+  return clienteFast.get(`/rutinas/paciente/${idPaciente}`)
+}
+
+export async function crearRutinaFast(datos) {
+  return clienteFast.post('/rutinas', datos)
+}
+
+export async function desactivarRutinaFast(idPlan) {
+  return clienteFast.delete(`/rutinas/${idPlan}`)
+}
+
+// --- Historial Médico (FastAPI) ---
+
+export async function obtenerHistorial(idPaciente) {
+  return clienteFast.get(`/historial/${idPaciente}`)
+}
+
+export async function crearHistorial(datos) {
+  return clienteFast.post('/historial', datos)
+}
+
+export async function crearHistorialCompleto(datos) {
+  return clienteFast.post('/historial/completo', datos)
+}
+
+export async function actualizarHistorial(id, datos) {
+  return clienteFast.put(`/historial/${id}`, datos)
+}
+
+export async function eliminarHistorial(id) {
+  return clienteFast.delete(`/historial/${id}`)
+}
+
+// --- Solicitudes Nutriólogo (FastAPI) ---
+
+export async function enviarSolicitud(idPaciente, idNutriologo) {
+  return clienteFast.post('/solicitudes', { id_paciente: idPaciente, id_nutriologo: idNutriologo })
+}
+
+export async function obtenerSolicitudesPendientes(idNutriologo) {
+  return clienteFast.get(`/solicitudes/pendientes/${idNutriologo}`)
+}
+
+export async function aceptarSolicitud(idSolicitud) {
+  return clienteFast.put(`/solicitudes/${idSolicitud}/aceptar`)
+}
+
+export async function rechazarSolicitud(idSolicitud) {
+  return clienteFast.put(`/solicitudes/${idSolicitud}/rechazar`)
+}
+
+export async function quitarNutriologoPaciente(idPaciente) {
+  return clienteFast.delete(`/paciente/${idPaciente}/nutriologo`)
 }
 
 export default cliente

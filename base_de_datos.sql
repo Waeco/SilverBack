@@ -15,6 +15,8 @@ DROP TABLE IF EXISTS detalles_dieta;
 DROP TABLE IF EXISTS planes_dieta;
 DROP TABLE IF EXISTS comidas_diarias;
 DROP TABLE IF EXISTS citas;
+DROP TABLE IF EXISTS solicitudes_nutriologo;
+DROP TABLE IF EXISTS historial_medico;
 DROP TABLE IF EXISTS registro_habitos;
 DROP TABLE IF EXISTS pacientes_perfil;
 DROP TABLE IF EXISTS nutriologos_perfil;
@@ -106,6 +108,7 @@ CREATE TABLE IF NOT EXISTS citas (
   id_nutriologo INT NOT NULL,
   fecha         DATE NOT NULL,
   hora          TIME NOT NULL,
+  tipo          ENUM('videollamada', 'presencial') NOT NULL DEFAULT 'presencial',
   estado        ENUM('pendiente', 'confirmada', 'completada', 'cancelada') NOT NULL DEFAULT 'pendiente',
   notas         TEXT DEFAULT NULL,
   actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -174,6 +177,7 @@ CREATE TABLE IF NOT EXISTS planes_rutina (
   id_plan_rutina      INT AUTO_INCREMENT PRIMARY KEY,
   id_paciente         INT NOT NULL,
   id_nutriologo       INT DEFAULT NULL,
+  nombre_rutina       VARCHAR(100) DEFAULT NULL,
   activo              TINYINT(1)   NOT NULL DEFAULT 1,
   fecha_asignado      DATE         NOT NULL DEFAULT (CURRENT_DATE),
   actualizado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -222,6 +226,59 @@ CREATE TABLE IF NOT EXISTS cache_alimentos (
 ) ENGINE=InnoDB;
 
 -- ============================================================
+-- TABLA: historial_medico
+-- ============================================================
+CREATE TABLE IF NOT EXISTS historial_medico (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente     INT NOT NULL,
+  id_nutriologo   INT DEFAULT NULL,
+  tipo            ENUM('peso', 'altura', 'enfermedad', 'alergia', 'nota') NOT NULL,
+  valor           VARCHAR(255) DEFAULT NULL,
+  descripcion     TEXT DEFAULT NULL,
+  fecha           DATE NOT NULL DEFAULT (CURRENT_DATE),
+  creado_en       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE SET NULL,
+  INDEX idx_historial_paciente (id_paciente),
+  INDEX idx_historial_tipo (tipo),
+  INDEX idx_historial_fecha (id_paciente, fecha)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: solicitudes_nutriologo
+-- Solicitudes de pacientes para ser asignados a un nutriólogo
+-- ============================================================
+CREATE TABLE IF NOT EXISTS solicitudes_nutriologo (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente    INT NOT NULL,
+  id_nutriologo  INT NOT NULL,
+  estado         ENUM('pendiente', 'aceptada', 'rechazada') NOT NULL DEFAULT 'pendiente',
+  creado_en      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
+  UNIQUE INDEX idx_solicitud_unica (id_paciente, id_nutriologo, estado),
+  INDEX idx_solicitud_nutriologo (id_nutriologo, estado)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: ejercicios
+-- Catálogo local de ejercicios sincronizado desde wger.de (español)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ejercicios (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  wger_id        INT          UNIQUE,
+  nombre         VARCHAR(255) NOT NULL,
+  descripcion    TEXT,
+  imagen_url     VARCHAR(500) DEFAULT NULL,
+  video_url      VARCHAR(500) DEFAULT NULL,
+  creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ejercicio_nombre (nombre),
+  INDEX idx_wger_id (wger_id)
+) ENGINE=InnoDB;
+
+-- ============================================================
 -- DATOS DE PRUEBA (SEED)
 -- ============================================================
 INSERT INTO usuarios (nombre_completo, correo, contrasenia_hash, rol) VALUES
@@ -241,8 +298,8 @@ INSERT INTO comidas_diarias (id_paciente, fecha, tipo_comida, nombre_alimento, c
   (1, CURDATE(), 'comida', 'Pechuga de Pollo', 200, 'g', 330, 62, 7.2, 0),
   (1, CURDATE(), 'comida', 'Arroz Integral', 150, 'g', 166.5, 3.87, 1.35, 34.44);
 
-INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, estado) VALUES
-  (1, 1, DATE_ADD(CURDATE(), INTERVAL 3 DAY), '10:00:00', 'confirmada');
+INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, tipo, estado) VALUES
+  (1, 1, DATE_ADD(CURDATE(), INTERVAL 3 DAY), '10:00:00', 'videollamada', 'confirmada');
 
 INSERT INTO planes_rutina (id_paciente, id_nutriologo, activo) VALUES
   (1, 1, 1);

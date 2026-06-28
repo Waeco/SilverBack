@@ -12,6 +12,7 @@ import CatalogoNutriologos from './paginas/CatalogoNutriologos'
 import PaginaPacientes from './paginas/PaginaPacientes'
 import PaginaAdminUsuarios from './paginas/PaginaAdminUsuarios'
 import PaginaRutina from './paginas/PaginaRutina'
+import PaginaHistorialMedico from './paginas/PaginaHistorialMedico'
 
 function RutaProtegida({ children }) {
   const { estaAutenticado } = useAutenticacion()
@@ -33,6 +34,8 @@ export default function App() {
         <Route path="/nutriologos" element={<RutaProtegida><CatalogoNutriologos /></RutaProtegida>} />
         <Route path="/pacientes" element={<RutaProtegida><PaginaPacientes /></RutaProtegida>} />
         <Route path="/admin/usuarios" element={<RutaProtegida><PaginaAdminUsuarios /></RutaProtegida>} />
+        <Route path="/historial" element={<RutaProtegida><PaginaHistorialMedico /></RutaProtegida>} />
+        <Route path="/historial/:idPaciente" element={<RutaProtegida><PaginaHistorialMedico /></RutaProtegida>} />
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<PaginaLogin />} />
         <Route path="/registro" element={<PaginaRegistro />} />

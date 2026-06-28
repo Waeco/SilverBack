@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import {
   LayoutDashboard, Utensils, CalendarDays, User, Stethoscope,
-  Users, Shield, Menu, X, LogOut, Dumbbell
+  Users, Shield, Menu, X, LogOut, Dumbbell, ClipboardEdit
 } from 'lucide-react'
 
 function obtenerEnlaces(rol) {
@@ -18,6 +18,7 @@ function obtenerEnlaces(rol) {
       { a: '/rutina', etiqueta: 'Rutina', icono: Dumbbell },
       { a: '/citas', etiqueta: 'Citas', icono: CalendarDays },
       { a: '/nutriologos', etiqueta: 'Nutriólogos', icono: Stethoscope },
+      { a: '/historial', etiqueta: 'Historial Médico', icono: ClipboardEdit },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
     ]
   }

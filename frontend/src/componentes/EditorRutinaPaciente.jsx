@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Search, Loader2, Plus, Trash2, Save, Dumbbell, ExternalLink } from 'lucide-react'
-import { buscarEjercicios, obtenerInfoEjercicio, obtenerRutinaPaciente, asignarRutina, desactivarRutina } from '../servicios/ApiServicio'
+import { X, Search, Loader2, Plus, Trash2, Save, Dumbbell } from 'lucide-react'
+import { buscarEjerciciosFast, obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast } from '../servicios/ApiServicio'
 import { alertaExito, alertaError, alertaConfirmar } from '../servicios/AlertasServicio'
 
 export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNutriologo }) {
@@ -12,13 +12,12 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
   const [resultadosBusqueda, setResultadosBusqueda] = useState([])
   const [buscando, setBuscando] = useState(false)
   const [ejercicioExpandido, setEjercicioExpandido] = useState(null)
-  const [infoCargando, setInfoCargando] = useState({})
 
   const cargarRutina = useCallback(async () => {
     if (!paciente) return
     setCargando(true)
     try {
-      const respuesta = await obtenerRutinaPaciente(paciente.id_paciente)
+      const respuesta = await obtenerRutinaPacienteFast(paciente.id_paciente)
       const existentes = (respuesta.data.detalles || []).map(d => ({
         ...d,
         id_temp: Date.now() + Math.random(),
@@ -39,8 +38,8 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
     if (!terminoBusqueda.trim()) return
     setBuscando(true)
     try {
-      const respuesta = await buscarEjercicios(terminoBusqueda)
-      setResultadosBusqueda(respuesta.data?.results || [])
+      const respuesta = await buscarEjerciciosFast(terminoBusqueda)
+      setResultadosBusqueda(respuesta.data || [])
     } catch {
       setResultadosBusqueda([])
     } finally {
@@ -49,54 +48,34 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
   }, [terminoBusqueda])
 
   const agregarEjercicio = (ejercicio) => {
+    if (items.length >= 10) return
     const nuevo = {
-      id_temp: Date.now(),
+      id_temp: Date.now() + Math.random(),
       id_ejercicio: String(ejercicio.id),
       nombre_ejercicio: ejercicio.nombre,
       descripcion: ejercicio.descripcion || '',
       series: 3,
       repeticiones: '10',
       descanso: '60 seg',
-      imagen_url: ejercicio.imagen || '',
-      video_url: ejercicio.video || '',
+      imagen_url: ejercicio.imagen_url || ejercicio.imagen || '',
+      video_url: ejercicio.video_url || ejercicio.video || '',
     }
     setItems([...items, nuevo])
     setResultadosBusqueda([])
     setTerminoBusqueda('')
   }
 
-  const expandirEjercicio = async (item) => {
+  const expandirEjercicio = (item) => {
     const idTemp = item.id_temp
-    if (ejercicioExpandido === idTemp) {
-      setEjercicioExpandido(null)
-      return
-    }
-    setEjercicioExpandido(idTemp)
-    if (!item.imagen_url && !item.video_url && item.id_ejercicio) {
-      setInfoCargando(prev => ({ ...prev, [idTemp]: true }))
-      try {
-        const resp = await obtenerInfoEjercicio(item.id_ejercicio)
-        const info = resp.data
-        if (info) {
-          setItems(prev => prev.map(i =>
-            i.id_temp === idTemp
-              ? { ...i, imagen_url: info.imagen || '', video_url: info.video || '', descripcion: info.descripcion || i.descripcion }
-              : i
-          ))
-        }
-      } catch {
-      } finally {
-        setInfoCargando(prev => ({ ...prev, [idTemp]: false }))
-      }
-    }
+    setEjercicioExpandido(prev => prev === idTemp ? null : idTemp)
   }
 
   const eliminarItem = (idTemp) => {
-    setItems(items.filter(i => i.id_temp !== idTemp))
+    setItems(prev => prev.filter(i => i.id_temp !== idTemp))
   }
 
   const actualizarCampo = (idTemp, campo, valor) => {
-    setItems(items.map(i => i.id_temp === idTemp ? { ...i, [campo]: valor } : i))
+    setItems(prev => prev.map(i => i.id_temp === idTemp ? { ...i, [campo]: valor } : i))
   }
 
   const guardarRutina = async () => {
@@ -104,10 +83,14 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
       alertaError('Error', 'Agrega al menos un ejercicio a la rutina.')
       return
     }
+    if (items.length > 10) {
+      alertaError('Límite alcanzado', 'La rutina no puede tener más de 10 ejercicios.')
+      return
+    }
     setGuardando(true)
     try {
-      const detalles = items.map(i => ({
-        id_ejercicio: i.id_ejercicio,
+      const ejercicios = items.map((i, idx) => ({
+        ejercicio_id: parseInt(i.id_ejercicio) || 0,
         nombre_ejercicio: i.nombre_ejercicio,
         descripcion: i.descripcion,
         series: i.series,
@@ -115,16 +98,19 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
         descanso: i.descanso,
         imagen_url: i.imagen_url,
         video_url: i.video_url,
+        orden: idx,
       }))
-      await asignarRutina({
+      await crearRutinaFast({
         id_paciente: paciente.id_paciente,
-        id_nutriologo: idNutriologo,
-        detalles,
+        id_asignador: idNutriologo,
+        rol_asignador: 'nutriologo',
+        nombre_rutina: 'Rutina asignada',
+        ejercicios,
       })
       alertaExito('Rutina asignada', 'La rutina se ha asignado correctamente al paciente.')
       onCerrar()
     } catch (err) {
-      alertaError('Error', err.response?.data?.error || 'Error al guardar la rutina.')
+      alertaError('Error', err.response?.data?.detail || err.response?.data?.error || 'Error al guardar la rutina.')
     } finally {
       setGuardando(false)
     }
@@ -135,14 +121,14 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
       '¿Estás seguro? El paciente podrá crear su propia rutina nuevamente.')
     if (!result.isConfirmed) return
     try {
-      const respuesta = await obtenerRutinaPaciente(paciente.id_paciente)
+      const respuesta = await obtenerRutinaPacienteFast(paciente.id_paciente)
       if (respuesta.data.rutina) {
-        await desactivarRutina(respuesta.data.rutina.id_plan_rutina)
+        await desactivarRutinaFast(respuesta.data.rutina.id_plan_rutina)
         alertaExito('Rutina eliminada', 'La rutina se ha desactivado.')
         onCerrar()
       }
     } catch (err) {
-      alertaError('Error', err.response?.data?.error || 'Error al eliminar la rutina.')
+      alertaError('Error', err.response?.data?.detail || err.response?.data?.error || 'Error al eliminar la rutina.')
     }
   }
 
@@ -197,13 +183,17 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                         {buscando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                       </button>
                     </div>
+                    {items.length >= 10 && (
+                      <p className="text-xs text-warning mt-1">Límite de 10 ejercicios alcanzado.</p>
+                    )}
                     {resultadosBusqueda.length > 0 && (
                       <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
                         {resultadosBusqueda.map((ej) => (
                           <button
                             key={ej.id}
                             onClick={() => agregarEjercicio(ej)}
-                            className="w-full text-left p-2.5 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors border border-transparent hover:border-primary/30"
+                            disabled={items.length >= 10}
+                            className="w-full text-left p-2.5 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors border border-transparent hover:border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <p className="text-sm font-medium text-texto-primary">{ej.nombre}</p>
                             {ej.descripcion && (
@@ -219,7 +209,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-texto-primary">
-                        Ejercicios ({items.length})
+                        Ejercicios ({items.length}/10)
                       </h3>
                     </div>
                     {items.length === 0 ? (
@@ -239,10 +229,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                     onClick={() => expandirEjercicio(item)}
                                     className="text-xs text-primary hover:text-primary-claro mt-0.5 flex items-center gap-1"
                                   >
-                                    {infoCargando[item.id_temp] ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : null}
-                                    {ejercicioExpandido === item.id_temp ? 'Ocultar detalles' : item.descripcion ? 'Ver detalles' : 'Cargar detalles'}
+                                    {ejercicioExpandido === item.id_temp ? 'Ocultar detalles' : 'Ver detalles'}
                                   </button>
                                 </div>
                               </div>
@@ -259,36 +246,34 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                   exit={{ height: 0, opacity: 0 }}
                                   className="px-3 pb-3"
                                 >
-                                  {infoCargando[item.id_temp] ? (
-                                    <div className="flex items-center gap-2 py-2">
-                                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                                      <span className="text-xs text-texto-muted">Cargando detalles...</span>
+                                  {item.descripcion && (
+                                    <p className="text-xs text-texto-secondary leading-relaxed mb-2">{item.descripcion}</p>
+                                  )}
+                                  {item.imagen_url && (
+                                    <div className="mt-2 rounded-xl overflow-hidden border border-gray-800/30">
+                                      <img
+                                        src={item.imagen_url}
+                                        alt={item.nombre_ejercicio}
+                                        className="w-full h-auto max-h-60 object-contain bg-gray-900"
+                                        loading="lazy"
+                                      />
                                     </div>
-                                  ) : (
-                                    <>
-                                      {item.descripcion && (
-                                        <p className="text-xs text-texto-secondary leading-relaxed mb-2">{item.descripcion}</p>
-                                      )}
-                                      {(item.imagen_url || item.video_url) && (
-                                        <div className="flex flex-wrap gap-3 mt-2">
-                                          {item.imagen_url && (
-                                            <a href={item.imagen_url} target="_blank" rel="noopener noreferrer"
-                                              className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-                                              <ExternalLink className="w-3 h-3" /> Ver imagen
-                                            </a>
-                                          )}
-                                          {item.video_url && (
-                                            <a href={item.video_url} target="_blank" rel="noopener noreferrer"
-                                              className="text-xs text-primary hover:text-primary-claro flex items-center gap-1">
-                                              <ExternalLink className="w-3 h-3" /> Ver video
-                                            </a>
-                                          )}
-                                        </div>
-                                      )}
-                                      {!item.descripcion && !item.imagen_url && !item.video_url && (
-                                        <p className="text-xs text-texto-muted italic">Sin información adicional disponible.</p>
-                                      )}
-                                    </>
+                                  )}
+                                  {item.video_url && (
+                                    <div className="mt-2 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
+                                      <iframe
+                                        src={item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be')
+                                          ? item.video_url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/').split('&')[0]
+                                          : item.video_url}
+                                        className="w-full h-full"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                        title={`Video de ${item.nombre_ejercicio}`}
+                                      />
+                                    </div>
+                                  )}
+                                  {!item.descripcion && !item.imagen_url && !item.video_url && (
+                                    <p className="text-xs text-texto-muted italic">Sin información adicional disponible.</p>
                                   )}
                                 </motion.div>
                               )}
@@ -300,7 +285,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                 <input
                                   type="number"
                                   value={item.series}
-                                  onChange={(e) => actualizarCampo(item.id_temp, 'series', Math.max(1, Number(e.target.value)))}
+                                  onChange={(e) => { const num = Number(e.target.value); if (!isNaN(num)) actualizarCampo(item.id_temp, 'series', Math.max(1, num)) }}
                                   className="input text-xs py-1.5 px-2"
                                   min="1"
                                 />

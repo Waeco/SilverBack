@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { obtenerUsuario, actualizarUsuario } from '../servicios/ApiServicio'
-import { Loader2, Save, User as UserIcon } from 'lucide-react'
+import { obtenerUsuario, actualizarUsuario, quitarNutriologoPaciente } from '../servicios/ApiServicio'
+import { Loader2, Save, User as UserIcon, UserX, Stethoscope } from 'lucide-react'
 
 export default function PaginaPerfil() {
   const { usuario: usuarioAuth } = useAutenticacion()
@@ -12,6 +12,8 @@ export default function PaginaPerfil() {
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
   const [exito, setExito] = useState(null)
+  const [perfilPaciente, setPerfilPaciente] = useState(null)
+  const [quitando, setQuitando] = useState(false)
 
   useEffect(() => {
     if (!usuarioAuth) return
@@ -21,6 +23,7 @@ export default function PaginaPerfil() {
         const u = respuesta.data.usuario
         setNombre(u.nombre_completo || '')
         setCorreo(u.correo || '')
+        if (u.perfil) setPerfilPaciente(u.perfil)
       } catch {
         setError('Error al cargar perfil')
       } finally {
@@ -42,6 +45,22 @@ export default function PaginaPerfil() {
       setError(err.response?.data?.error || 'Error al guardar')
     } finally {
       setGuardando(false)
+    }
+  }
+
+  const manejarQuitarNutriologo = async () => {
+    if (!confirm('¿Estás seguro de que deseas eliminar a tu nutriólogo asignado?')) return
+    setQuitando(true)
+    setError(null)
+    setExito(null)
+    try {
+      await quitarNutriologoPaciente(perfilPaciente.id_paciente)
+      setPerfilPaciente((prev) => ({ ...prev, id_nutriologo_asignado: null }))
+      setExito('Nutriólogo removido correctamente.')
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al remover nutriólogo')
+    } finally {
+      setQuitando(false)
     }
   }
 
@@ -67,6 +86,27 @@ export default function PaginaPerfil() {
             <p className="text-sm text-texto-secondary mt-1 capitalize">{usuarioAuth?.rol}</p>
             <p className="text-xs text-texto-muted mt-1">{usuarioAuth?.correo}</p>
           </div>
+
+          {perfilPaciente && perfilPaciente.id_nutriologo_asignado && (
+            <div className="tarjeta-hover mt-4">
+              <h4 className="text-sm font-semibold text-texto-primary mb-3 flex items-center gap-2">
+                <Stethoscope className="w-4 h-4 text-primary" />
+                Nutriólogo Asignado
+              </h4>
+              <button
+                onClick={manejarQuitarNutriologo}
+                disabled={quitando}
+                className="btn-secondary text-sm flex items-center gap-2 w-full justify-center"
+              >
+                {quitando ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <UserX className="w-4 h-4" />
+                )}
+                {quitando ? 'Removiendo...' : 'Quitar Nutriólogo'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="lg:col-span-2">
@@ -84,10 +124,6 @@ export default function PaginaPerfil() {
               <div>
                 <label className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
                 <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-texto-secondary mb-1.5">Rol</label>
-                <input type="text" value={usuarioAuth?.rol || ''} className="input capitalize" disabled />
               </div>
               <button type="submit" disabled={guardando} className="btn-primary flex items-center gap-2">
                 {guardando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
