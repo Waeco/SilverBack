@@ -225,4 +225,14 @@ export async function quitarNutriologoPaciente(idPaciente) {
   return clienteFast.delete(`/paciente/${idPaciente}/nutriologo`)
 }
 
+// --- Recuperación de Contraseña ---
+
+export async function solicitarRecuperacion(correo) {
+  return cliente.post('/recuperar-password', { correo })
+}
+
+export async function cambiarPassword(correo, token, nueva_contrasena) {
+  return cliente.post('/cambiar-password', { correo, token, nueva_contrasena })
+}
+
 export default cliente

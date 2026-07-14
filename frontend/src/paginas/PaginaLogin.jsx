@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { Loader2, Eye, EyeOff } from 'lucide-react'
+import { Loader2, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
 
 export default function PaginaLogin() {
   const { iniciarSesion, estaAutenticado, error: errorContexto } = useAutenticacion()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const verificado = searchParams.get('verificado')
 
   useEffect(() => {
     if (estaAutenticado) navigate('/dashboard', { replace: true })
@@ -56,6 +58,13 @@ export default function PaginaLogin() {
 
           <h2 className="text-lg font-semibold text-texto-primary mb-6">Iniciar Sesión</h2>
 
+          {verificado === '1' && (
+            <div className="p-3 rounded-lg bg-exito/10 border border-exito/20 text-exito text-sm mb-4 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              Correo verificado correctamente. Ya puedes iniciar sesión.
+            </div>
+          )}
+
           {(error || errorContexto) && (
             <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-error text-sm mb-4">
               {error || errorContexto}
@@ -64,10 +73,12 @@ export default function PaginaLogin() {
 
           <form onSubmit={manejarEnvio} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-texto-secondary mb-1.5">
+              <label htmlFor="login-correo" className="block text-sm font-medium text-texto-secondary mb-1.5">
                 Correo electrónico
               </label>
               <input
+                id="login-correo"
+                name="correo"
                 type="email"
                 value={correo}
                 onChange={(e) => setCorreo(e.target.value)}
@@ -78,11 +89,13 @@ export default function PaginaLogin() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-texto-secondary mb-1.5">
+              <label htmlFor="login-pass" className="block text-sm font-medium text-texto-secondary mb-1.5">
                 Contraseña
               </label>
               <div className="relative">
                 <input
+                  id="login-pass"
+                  name="contrasena"
                   type={mostrarContrasena ? 'text' : 'password'}
                   value={contrasena}
                   onChange={(e) => setContrasena(e.target.value)}
@@ -109,6 +122,12 @@ export default function PaginaLogin() {
               ) : null}
               {cargando ? 'Iniciando sesión...' : 'Iniciar Sesión'}
             </button>
+
+            <div className="text-center">
+              <Link to="/recuperar-password" className="text-sm text-texto-muted hover:text-primary transition-colors">
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
           </form>
 
           <p className="text-center text-sm text-texto-muted mt-4">

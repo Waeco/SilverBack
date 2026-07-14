@@ -8,20 +8,21 @@ CREATE DATABASE IF NOT EXISTS silverback_db
 
 USE silverback_db;
 
--- Eliminar tablas existentes para recrearlas con los cambios de nombres
-DROP TABLE IF EXISTS detalles_rutina;
-DROP TABLE IF EXISTS planes_rutina;
-DROP TABLE IF EXISTS detalles_dieta;
-DROP TABLE IF EXISTS planes_dieta;
-DROP TABLE IF EXISTS comidas_diarias;
-DROP TABLE IF EXISTS citas;
-DROP TABLE IF EXISTS solicitudes_nutriologo;
-DROP TABLE IF EXISTS historial_medico;
-DROP TABLE IF EXISTS registro_habitos;
-DROP TABLE IF EXISTS pacientes_perfil;
-DROP TABLE IF EXISTS nutriologos_perfil;
-DROP TABLE IF EXISTS usuarios;
-DROP TABLE IF EXISTS cache_alimentos;
+-- Las tablas se crean con IF NOT EXISTS para preservar datos existentes.
+-- Para reiniciar desde cero, ejecuta manualmente: base_de_datos_reinicio.sql
+-- DROP TABLE IF EXISTS detalles_rutina;
+-- DROP TABLE IF EXISTS planes_rutina;
+-- DROP TABLE IF EXISTS detalles_dieta;
+-- DROP TABLE IF EXISTS planes_dieta;
+-- DROP TABLE IF EXISTS comidas_diarias;
+-- DROP TABLE IF EXISTS citas;
+-- DROP TABLE IF EXISTS solicitudes_nutriologo;
+-- DROP TABLE IF EXISTS historial_medico;
+-- DROP TABLE IF EXISTS registro_habitos;
+-- DROP TABLE IF EXISTS pacientes_perfil;
+-- DROP TABLE IF EXISTS nutriologos_perfil;
+-- DROP TABLE IF EXISTS usuarios;
+-- DROP TABLE IF EXISTS cache_alimentos;
 
 -- ============================================================
 -- TABLA: usuarios
@@ -35,6 +36,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
   fecha_registro   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   actualizado_en   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   activo           TINYINT(1)    NOT NULL DEFAULT 1,
+  token_recuperacion       VARCHAR(64)  DEFAULT NULL,
+  token_recuperacion_expira DATETIME    DEFAULT NULL,
+  token_verificacion_correo VARCHAR(64)  DEFAULT NULL,
+  correo_verificado        TINYINT(1)   NOT NULL DEFAULT 0,
   INDEX idx_correo (correo),
   INDEX idx_rol (rol)
 ) ENGINE=InnoDB;

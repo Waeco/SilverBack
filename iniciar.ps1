@@ -42,4 +42,4 @@ Start-Sleep -Seconds 2
 
 Write-Host "[2/3] Iniciando backend..."
 Write-Host "Presiona Ctrl+C para detener el servidor."
-python "backend/servidor.py"
+py "backend/servidor.py"

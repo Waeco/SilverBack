@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { registrarUsuario } from '../servicios/ApiServicio'
 import { Loader2, User, Stethoscope, ArrowLeft } from 'lucide-react'
+import ValidadorPassword, { passwordEsValida } from '../componentes/ValidadorPassword'
 
 export default function PaginaRegistro() {
   const { estaAutenticado } = useAutenticacion()
@@ -20,6 +21,18 @@ export default function PaginaRegistro() {
   const [cedula, setCedula] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState(null)
+  const [mostrarValidador, setMostrarValidador] = useState(false)
+  const validadorRef = useRef(null)
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (validadorRef.current && !validadorRef.current.contains(e.target)) {
+        setMostrarValidador(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   const manejarEnvio = async (e) => {
     e.preventDefault()
@@ -29,12 +42,8 @@ export default function PaginaRegistro() {
       setError('Todos los campos son requeridos')
       return
     }
-    if (contrasena !== confirmar) {
-      setError('Las contraseñas no coinciden')
-      return
-    }
-    if (contrasena.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres')
+    if (!passwordEsValida(contrasena, confirmar)) {
+      setError('La contraseña no cumple con todos los requisitos')
       return
     }
 
@@ -103,26 +112,32 @@ export default function PaginaRegistro() {
 
           <form onSubmit={manejarEnvio} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre completo</label>
-              <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} className="input" placeholder="Tu nombre" />
+              <label htmlFor="reg-nombre" className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre completo</label>
+              <input id="reg-nombre" name="nombre_completo" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} className="input" placeholder="Tu nombre" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
-              <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input" placeholder="correo@ejemplo.com" />
+              <label htmlFor="reg-correo" className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
+              <input id="reg-correo" name="correo" type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input" placeholder="correo@ejemplo.com" />
             </div>
             {rol === 'nutriologo' && (
               <div>
-                <label className="block text-sm font-medium text-texto-secondary mb-1.5">Cédula profesional</label>
-                <input type="text" value={cedula} onChange={(e) => setCedula(e.target.value)} className="input" placeholder="12345678" />
+                <label htmlFor="reg-cedula" className="block text-sm font-medium text-texto-secondary mb-1.5">Cédula profesional</label>
+                <input id="reg-cedula" name="cedula_profesional" type="text" value={cedula} onChange={(e) => setCedula(e.target.value)} className="input" placeholder="12345678" />
               </div>
             )}
-            <div>
-              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Contraseña</label>
-              <input type="password" value={contrasena} onChange={(e) => setContrasena(e.target.value)} className="input" placeholder="Mínimo 6 caracteres" />
+            <div ref={validadorRef}>
+              <label htmlFor="reg-pass" className="block text-sm font-medium text-texto-secondary mb-1.5">Contraseña</label>
+              <input id="reg-pass" name="contrasena" type="password" value={contrasena} onChange={(e) => setContrasena(e.target.value)} onFocus={() => setMostrarValidador(true)} className="input" placeholder="Mínimo 6 caracteres" />
+              <ValidadorPassword
+                valor={contrasena}
+                confirmar={confirmar}
+                visible={mostrarValidador}
+                onCerrar={() => setMostrarValidador(false)}
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
-              <input type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} className="input" placeholder="Repite la contraseña" />
+              <label htmlFor="reg-confirm" className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
+              <input id="reg-confirm" name="confirmar_contrasena" type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} className="input" placeholder="Repite la contraseña" />
             </div>
             <button type="submit" disabled={cargando} className="btn-primary w-full flex items-center justify-center gap-2">
               {cargando && <Loader2 className="w-4 h-4 animate-spin" />}

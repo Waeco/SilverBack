@@ -2,6 +2,11 @@ import json
 import os
 import sys
 import time
+import datetime
+import hashlib
+import secrets
+import hmac
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -12,19 +17,33 @@ from conector_wger import buscar_ejercicios, obtener_info_ejercicio
 
 RUTA_FRONTEND = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
 PUERTO = 8000
+SECRETO_JWT = os.getenv('JWT_SECRET', 'silverback-secreto-jwt-2026-cambiame')
+TIEMPO_EXPIRACION_TOKEN = 86400
+INTENTOS_MAXIMOS = 5
+TIEMPO_BLOQUEO = 900
 
 
 class ManejadorSilverBack(BaseHTTPRequestHandler):
 
+    _intentos_fallidos = {}
+
     def _enviar_json(self, datos, codigo=200):
         self.send_response(codigo)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self._enviar_headers_seguridad()
         self._enviar_cors()
         self.end_headers()
         self.wfile.write(json.dumps(datos, ensure_ascii=False, default=str).encode('utf-8'))
 
     def _enviar_error(self, mensaje, codigo=400):
         self._enviar_json({'error': mensaje}, codigo)
+
+    def _enviar_headers_seguridad(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('X-XSS-Protection', '1; mode=block')
+        self.send_header('Referrer-Policy', 'strict-origin-when-cross-origin')
+        self.send_header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
 
     def _enviar_cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -40,6 +59,36 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
 
     def _parsear_ruta(self):
         return urlparse(self.path)
+
+    def _generar_token(self, id_usuario, rol):
+        import jwt
+        payload = {
+            'id_usuario': id_usuario,
+            'rol': rol,
+            'exp': int(time.time()) + TIEMPO_EXPIRACION_TOKEN,
+            'iat': int(time.time())
+        }
+        return jwt.encode(payload, SECRETO_JWT, algorithm='HS256')
+
+    def _verificar_token(self, roles=None):
+        auth = self.headers.get('Authorization', '')
+        if not auth.startswith('Bearer '):
+            self._enviar_error('Token de autorización requerido', 401)
+            return None
+        token = auth[7:]
+        try:
+            import jwt
+            payload = jwt.decode(token, SECRETO_JWT, algorithms=['HS256'])
+            if roles and payload.get('rol') not in roles:
+                self._enviar_error('No tienes permiso para acceder a este recurso', 403)
+                return None
+            return payload
+        except jwt.ExpiredSignatureError:
+            self._enviar_error('El token ha expirado. Inicia sesión nuevamente.', 401)
+            return None
+        except jwt.InvalidTokenError:
+            self._enviar_error('Token inválido', 401)
+            return None
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -85,6 +134,16 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
     # ─── API GET ──────────────────────────────────────────────────────────────
 
     def _manejar_api_get(self, partes, ruta):
+        if len(partes) >= 3 and partes[2] == 'salud':
+            self._enviar_json({'estado': 'ok', 'timestamp': time.time()})
+            return
+        if len(partes) >= 3 and partes[2] == 'verificar-correo':
+            self._verificar_correo(ruta)
+            return
+
+        if not self._verificar_token():
+            return
+
         if len(partes) >= 3 and partes[2] == 'comidas':
             self._obtener_comidas(ruta)
         elif len(partes) >= 3 and partes[2] == 'dias-con-comidas':
@@ -105,6 +164,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         elif len(partes) >= 3 and partes[2] == 'pacientes':
             self._listar_pacientes(ruta)
         elif len(partes) >= 3 and partes[2] == 'admin' and len(partes) >= 4 and partes[3] == 'stats':
+            if not self._verificar_token(roles=['admin']):
+                return
             self._admin_stats()
         elif len(partes) >= 3 and partes[2] == 'dieta':
             if len(partes) >= 4:
@@ -659,19 +720,37 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
     # ─── API POST ─────────────────────────────────────────────────────────────
 
     def _manejar_api_post(self, partes, ruta):
-        if len(partes) >= 3 and partes[2] == 'comidas':
-            self._guardar_comida()
-        elif len(partes) >= 3 and partes[2] == 'auth':
+        if len(partes) >= 3 and partes[2] == 'auth':
             self._iniciar_sesion()
         elif len(partes) >= 3 and partes[2] == 'registro':
             self._registrar_usuario()
+        elif len(partes) >= 3 and partes[2] == 'recuperar-password':
+            self._solicitar_recuperacion_password()
+        elif len(partes) >= 3 and partes[2] == 'cambiar-password':
+            self._cambiar_password()
+        elif len(partes) >= 3 and partes[2] == 'upload':
+            if not self._verificar_token():
+                return
+            self._subir_archivo()
+        elif len(partes) >= 3 and partes[2] == 'backup':
+            if not self._verificar_token(roles=['admin']):
+                return
+            self._generar_backup()
+        elif not self._verificar_token():
+            return
+        elif len(partes) >= 3 and partes[2] == 'comidas':
+            self._guardar_comida()
         elif len(partes) >= 3 and partes[2] == 'habitos':
             self._guardar_habito()
         elif len(partes) >= 3 and partes[2] == 'citas':
             self._crear_cita()
         elif len(partes) >= 3 and partes[2] == 'dieta':
+            if not self._verificar_token(roles=['nutriologo', 'admin']):
+                return
             self._asignar_dieta()
         elif len(partes) >= 3 and partes[2] == 'rutina':
+            if not self._verificar_token(roles=['nutriologo', 'admin']):
+                return
             self._asignar_rutina()
         else:
             self._enviar_error('Ruta API no encontrada', 404)
@@ -723,6 +802,21 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         if not correo or not contrasena:
             self._enviar_error('Correo y contraseña requeridos', 400)
             return
+
+        ip = self.client_address[0]
+        ahora = time.time()
+        intento = ManejadorSilverBack._intentos_fallidos.get(ip)
+        if intento:
+            if intento['count'] >= INTENTOS_MAXIMOS and ahora < intento['reset']:
+                restante = int(intento['reset'] - ahora)
+                self._enviar_error(
+                    f'Demasiados intentos fallidos. Intenta de nuevo en {restante} segundos.',
+                    429
+                )
+                return
+            if ahora >= intento['reset']:
+                del ManejadorSilverBack._intentos_fallidos[ip]
+
         conexion = obtener_conexion()
         if not conexion:
             self._enviar_error('Error de conexión a la base de datos', 500)
@@ -733,15 +827,21 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             usuario = cursor.fetchone()
             cursor.close()
             if not usuario:
+                self._registrar_intento_fallido(ip, ahora)
                 self._enviar_error('Credenciales inválidas', 401)
                 return
-            import hashlib
             hash_ingresada = hashlib.sha256(contrasena.encode('utf-8')).hexdigest()
             if usuario['contrasenia_hash'] != hash_ingresada:
+                self._registrar_intento_fallido(ip, ahora)
                 self._enviar_error('Credenciales inválidas', 401)
                 return
+
+            if ip in ManejadorSilverBack._intentos_fallidos:
+                del ManejadorSilverBack._intentos_fallidos[ip]
+
+            token = self._generar_token(usuario['id_usuario'], usuario['rol'])
             self._enviar_json({
-                'token': 'token-simulado-' + str(usuario['id_usuario']),
+                'token': token,
                 'usuario': {
                     'id_usuario': usuario['id_usuario'],
                     'nombre_completo': usuario['nombre_completo'],
@@ -753,6 +853,16 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self._enviar_error(f'Error al iniciar sesión: {str(e)}', 500)
         finally:
             cerrar_conexion(conexion)
+
+    def _registrar_intento_fallido(self, ip, ahora):
+        intento = ManejadorSilverBack._intentos_fallidos.get(ip)
+        if intento:
+            intento['count'] += 1
+        else:
+            ManejadorSilverBack._intentos_fallidos[ip] = {
+                'count': 1,
+                'reset': ahora + TIEMPO_BLOQUEO
+            }
 
     def _registrar_usuario(self):
         datos = self._leer_cuerpo()
@@ -797,12 +907,247 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 )
                 conexion.commit()
                 cursor.close()
-            self._enviar_json({'id_usuario': id_usuario, 'mensaje': 'Usuario registrado correctamente'}, 201)
+            token_verificacion = secrets.token_hex(32)
+            cur = conexion.cursor()
+            cur.execute(
+                "UPDATE usuarios SET token_verificacion_correo=%s WHERE id_usuario=%s",
+                (token_verificacion, id_usuario)
+            )
+            conexion.commit()
+            cur.close()
+
+            self._enviar_json({'id_usuario': id_usuario, 'mensaje': 'Usuario registrado correctamente. Revisa tu correo para verificar tu cuenta.'}, 201)
+
+            def enviar_verificacion():
+                try:
+                    import smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    REMITENTE_CORREO = os.getenv('SMTP_EMAIL', 'sebastianorozcoperez2108@gmail.com')
+                    REMITENTE_PASSWORD = os.getenv('SMTP_PASSWORD', 'qvij lwef sufl rtwm')
+                    enlace = f"http://localhost:8000/api/verificar-correo?token={token_verificacion}&id={id_usuario}"
+                    mensaje = MIMEMultipart()
+                    mensaje['From'] = REMITENTE_CORREO
+                    mensaje['To'] = correo
+                    mensaje['Subject'] = "Verifica tu cuenta - SilverBack"
+                    cuerpo_html = f"""
+                    <html><body style="font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#0b0f19;color:#f3f4f6;padding:40px 20px;margin:0;">
+                        <div style="max-width:550px;margin:0 auto;background:#111827;padding:40px;border-radius:16px;border:1px solid #1f2937;">
+                            <div style="text-align:center;margin-bottom:30px;">
+                                <h1 style="color:#ff4757;font-size:28px;font-weight:800;letter-spacing:2px;margin:0;text-transform:uppercase;">
+                                    Silver<span style="color:#fff;">Back</span>
+                                </h1>
+                                <div style="height:2px;width:60px;background:#ff4757;margin:12px auto 0;border-radius:2px;"></div>
+                            </div>
+                            <div style="font-size:15px;line-height:1.6;color:#d1d5db;">
+                                <p style="font-size:17px;color:#fff;margin-top:0;">Hola, <strong style="color:#ff4757;">{nombre}</strong>:</p>
+                                <p>Gracias por registrarte en SilverBack. Para activar tu cuenta, haz clic en el botón de abajo:</p>
+                                <div style="text-align:center;margin:30px 0;">
+                                    <a href="{enlace}" style="display:inline-block;background:#ff4757;color:#fff;text-decoration:none;font-size:16px;font-weight:600;padding:14px 36px;border-radius:8px;">
+                                        Verificar Cuenta
+                                    </a>
+                                </div>
+                                <p style="font-size:13px;color:#9ca3af;">Este enlace expira en 24 horas. Si no creaste esta cuenta, ignora este mensaje.</p>
+                            </div>
+                            <div style="border-top:1px solid #1f2937;margin:30px 0 20px 0;"></div>
+                            <p style="font-size:11px;color:#6b7280;text-align:center;">&copy; SilverBack Platform.</p>
+                        </div>
+                    </body></html>
+                    """
+                    mensaje.attach(MIMEText(cuerpo_html, 'html'))
+                    servidor_smtp = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+                    servidor_smtp.starttls()
+                    servidor_smtp.login(REMITENTE_CORREO, REMITENTE_PASSWORD)
+                    servidor_smtp.sendmail(REMITENTE_CORREO, correo, mensaje.as_string())
+                    servidor_smtp.quit()
+                except Exception as e:
+                    print(f"[EMAIL] Error al enviar verificación: {e}")
+
+            threading.Thread(target=enviar_verificacion, daemon=True).start()
         except Exception as e:
             if 'Duplicate' in str(e):
                 self._enviar_error('El correo ya está registrado', 409)
             else:
                 self._enviar_error(f'Error al registrar usuario: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _verificar_correo(self, ruta):
+        params = parse_qs(ruta.query)
+        token = params.get('token', [None])[0]
+        id_usuario = params.get('id', [None])[0]
+        if not token or not id_usuario:
+            self._enviar_error('Enlace de verificación inválido', 400)
+            return
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id_usuario FROM usuarios WHERE id_usuario=%s AND token_verificacion_correo=%s",
+                (id_usuario, token)
+            )
+            usuario = cursor.fetchone()
+            if not usuario:
+                cursor.close()
+                self._enviar_error('Enlace de verificación inválido o expirado', 400)
+                return
+            cursor = conexion.cursor()
+            cursor.execute(
+                "UPDATE usuarios SET correo_verificado=1, token_verificacion_correo=NULL WHERE id_usuario=%s",
+                (id_usuario,)
+            )
+            conexion.commit()
+            cursor.close()
+            self.send_response(302)
+            self.send_header('Location', '/login?verificado=1')
+            self.end_headers()
+        except Exception as e:
+            self._enviar_error(f'Error al verificar correo: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _solicitar_recuperacion_password(self):
+        datos = self._leer_cuerpo()
+        correo = datos.get('correo')
+        if not correo:
+            self._enviar_error('El correo electrónico es requerido', 400)
+            return
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute("SELECT id_usuario, nombre_completo FROM usuarios WHERE correo = %s", (correo,))
+            usuario = cursor.fetchone()
+            cursor.close()
+            if not usuario:
+                self._enviar_error('El correo no está registrado en el sistema', 404)
+                return
+            import secrets
+            token = secrets.token_hex(32)
+            cur = conexion.cursor()
+            cur.execute(
+                "UPDATE usuarios SET token_recuperacion=%s, "
+                "token_recuperacion_expira=DATE_ADD(NOW(), INTERVAL 1 HOUR) "
+                "WHERE id_usuario=%s",
+                (token, usuario['id_usuario'])
+            )
+            conexion.commit()
+            cur.close()
+
+            # Responder inmediatamente antes de enviar el email
+            self._enviar_json({
+                'mensaje': 'Se ha enviado un enlace de recuperación a tu correo electrónico.'
+            })
+
+            # ── Enviar email en segundo plano (no bloquea el servidor) ──
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            import threading
+
+            def enviar_email():
+                try:
+                    REMITENTE_CORREO = os.getenv('SMTP_EMAIL', 'sebastianorozcoperez2108@gmail.com')
+                    REMITENTE_PASSWORD = os.getenv('SMTP_PASSWORD', 'qvij lwef sufl rtwm')
+                    enlace = f"http://localhost:8000/restablecer?token={token}&correo={correo}"
+                    mensaje = MIMEMultipart()
+                    mensaje['From'] = REMITENTE_CORREO
+                    mensaje['To'] = correo
+                    mensaje['Subject'] = "Restablecer Contraseña - SilverBack"
+                    cuerpo_html = f"""
+                    <html>
+                        <body style="font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#0b0f19;color:#f3f4f6;padding:40px 20px;margin:0;">
+                            <div style="max-width:550px;margin:0 auto;background:#111827;padding:40px;border-radius:16px;border:1px solid #1f2937;">
+                                <div style="text-align:center;margin-bottom:30px;">
+                                    <h1 style="color:#ff4757;font-size:28px;font-weight:800;letter-spacing:2px;margin:0;text-transform:uppercase;">
+                                        Silver<span style="color:#fff;">Back</span>
+                                    </h1>
+                                    <div style="height:2px;width:60px;background:#ff4757;margin:12px auto 0;border-radius:2px;"></div>
+                                </div>
+                                <div style="font-size:15px;line-height:1.6;color:#d1d5db;">
+                                    <p style="font-size:17px;color:#fff;margin-top:0;">Hola, <strong style="color:#ff4757;">{usuario['nombre_completo']}</strong>:</p>
+                                    <p>Recibimos una solicitud para restablecer tu contraseña. Haz clic en el botón de abajo para crear una nueva:</p>
+                                    <div style="text-align:center;margin:30px 0;">
+                                        <a href="{enlace}"
+                                           style="display:inline-block;background:#ff4757;color:#fff;text-decoration:none;
+                                                  font-size:16px;font-weight:600;padding:14px 36px;border-radius:8px;">
+                                            Restablecer Contraseña
+                                        </a>
+                                    </div>
+                                    <p style="font-size:13px;color:#9ca3af;">Este enlace expira en 1 hora. Si no solicitaste este cambio, ignora este mensaje.</p>
+                                </div>
+                                <div style="border-top:1px solid #1f2937;margin:30px 0 20px 0;"></div>
+                                <p style="font-size:11px;color:#6b7280;text-align:center;">&copy; SilverBack Platform. Todos los derechos reservados.</p>
+                            </div>
+                        </body>
+                    </html>
+                    """
+                    mensaje.attach(MIMEText(cuerpo_html, 'html'))
+                    servidor_smtp = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+                    servidor_smtp.starttls()
+                    servidor_smtp.login(REMITENTE_CORREO, REMITENTE_PASSWORD)
+                    servidor_smtp.sendmail(REMITENTE_CORREO, correo, mensaje.as_string())
+                    servidor_smtp.quit()
+                except Exception as e:
+                    print(f"[EMAIL] Error al enviar correo: {e}")
+
+            threading.Thread(target=enviar_email, daemon=True).start()
+        except Exception as e:
+            self._enviar_error(f'Error al solicitar recuperación: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _cambiar_password(self):
+        datos = self._leer_cuerpo()
+        correo = datos.get('correo')
+        token = datos.get('token')
+        nueva_contrasena = datos.get('nueva_contrasena')
+        if not all([correo, token, nueva_contrasena]):
+            self._enviar_error('Campos requeridos: correo, token, nueva_contrasena', 400)
+            return
+        if len(nueva_contrasena) < 6:
+            self._enviar_error('La contraseña debe tener al menos 6 caracteres', 400)
+            return
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id_usuario, token_recuperacion, token_recuperacion_expira "
+                "FROM usuarios WHERE correo = %s",
+                (correo,)
+            )
+            usuario = cursor.fetchone()
+            cursor.close()
+            if not usuario:
+                self._enviar_error('Correo no registrado', 404)
+                return
+            if not usuario['token_recuperacion'] or usuario['token_recuperacion'] != token:
+                self._enviar_error('Token de recuperación inválido.', 400)
+                return
+            if usuario['token_recuperacion_expira'] and usuario['token_recuperacion_expira'] < datetime.datetime.now():
+                self._enviar_error('El token ha expirado. Solicita uno nuevo.', 400)
+                return
+            import hashlib
+            hash_nueva = hashlib.sha256(nueva_contrasena.encode('utf-8')).hexdigest()
+            cur = conexion.cursor()
+            cur.execute(
+                "UPDATE usuarios SET contrasenia_hash=%s, token_recuperacion=NULL, "
+                "token_recuperacion_expira=NULL WHERE id_usuario=%s",
+                (hash_nueva, usuario['id_usuario'])
+            )
+            conexion.commit()
+            cur.close()
+            self._enviar_json({'mensaje': 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.'})
+        except Exception as e:
+            self._enviar_error(f'Error al cambiar contraseña: {str(e)}', 500)
         finally:
             cerrar_conexion(conexion)
 
@@ -875,6 +1220,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
     # ─── API PUT ─────────────────────────────────────────────────────────────
 
     def _manejar_api_put(self, partes, ruta):
+        if not self._verificar_token():
+            return
         if len(partes) >= 4 and partes[2] == 'comidas':
             self._actualizar_comida(partes[3])
         elif len(partes) >= 4 and partes[2] == 'citas':
@@ -882,6 +1229,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         elif len(partes) >= 4 and partes[2] == 'usuario':
             self._actualizar_usuario(partes)
         elif len(partes) >= 5 and partes[2] == 'admin' and partes[3] == 'usuarios':
+            if not self._verificar_token(roles=['admin']):
+                return
             self._admin_actualizar_usuario(partes[4])
         else:
             self._enviar_error('Ruta API no encontrada', 404)
@@ -1021,15 +1370,23 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
     # ─── API DELETE ───────────────────────────────────────────────────────────
 
     def _manejar_api_delete(self, partes, ruta):
-        if len(partes) >= 4 and partes[2] == 'comidas':
+        if not self._verificar_token():
+            return
+        if len(partes) >= 5 and partes[2] == 'admin' and partes[3] == 'usuarios':
+            if not self._verificar_token(roles=['admin']):
+                return
+            self._admin_eliminar_usuario(partes[4])
+        elif len(partes) >= 4 and partes[2] == 'comidas':
             self._eliminar_comida(partes[3])
         elif len(partes) >= 4 and partes[2] == 'citas':
             self._eliminar_cita(partes[3])
-        elif len(partes) >= 5 and partes[2] == 'admin' and partes[3] == 'usuarios':
-            self._admin_eliminar_usuario(partes[4])
         elif len(partes) >= 4 and partes[2] == 'dieta':
+            if not self._verificar_token(roles=['nutriologo', 'admin']):
+                return
             self._desactivar_dieta(partes[3])
         elif len(partes) >= 4 and partes[2] == 'rutina':
+            if not self._verificar_token(roles=['nutriologo', 'admin']):
+                return
             self._desactivar_rutina(partes[3])
         else:
             self._enviar_error('Ruta API no encontrada', 404)
@@ -1066,12 +1423,86 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         finally:
             cerrar_conexion(conexion)
 
+    # ─── BACKUP ─────────────────────────────────────────────────────────────
+
+    def _generar_backup(self):
+        import subprocess
+        try:
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            nombre_archivo = f'backup_silverback_{timestamp}.sql'
+            ruta_backup = os.path.join(os.path.dirname(os.path.dirname(__file__)), nombre_archivo)
+            resultado = subprocess.run(
+                ['mysqldump', '-u', 'root', 'silverback_db', f'--result-file={ruta_backup}'],
+                capture_output=True, text=True, timeout=60
+            )
+            if resultado.returncode == 0:
+                self._enviar_json({'mensaje': f'Respaldo creado: {nombre_archivo}', 'archivo': nombre_archivo})
+            else:
+                self._enviar_error(f'Error al crear respaldo: {resultado.stderr}', 500)
+        except FileNotFoundError:
+            self._enviar_error('mysqldump no está instalado o no está en el PATH', 500)
+        except subprocess.TimeoutExpired:
+            self._enviar_error('La operación de respaldo excedió el tiempo límite', 500)
+        except Exception as e:
+            self._enviar_error(f'Error al generar respaldo: {str(e)}', 500)
+
+    # ─── SUBIDA DE ARCHIVOS ─────────────────────────────────────────────────
+
+    def _subir_archivo(self):
+        import cgi
+        import io
+        try:
+            tipo = self.headers.get('Content-Type', '')
+            if 'multipart/form-data' not in tipo:
+                self._enviar_error('Se require Content-Type multipart/form-data', 400)
+                return
+            entorno = {
+                'REQUEST_METHOD': 'POST',
+                'CONTENT_TYPE': tipo,
+                'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
+            }
+            archivos = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ=entorno,
+                keep_blank_values=True
+            )
+            campo = archivos.get('archivo')
+            if not campo or not campo.filename:
+                self._enviar_error('Campo "archivo" requerido con un archivo válido', 400)
+                return
+            nombre_original = campo.filename
+            if not nombre_original.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.doc', '.docx')):
+                self._enviar_error('Formato de archivo no permitido. Usa: PNG, JPG, PDF, DOC', 400)
+                return
+            if len(campo.file.read()) > 5 * 1024 * 1024:
+                self._enviar_error('El archivo excede el tamaño máximo de 5 MB', 400)
+                return
+            campo.file.seek(0)
+            timestamp = int(time.time())
+            nombre_limpio = f"{timestamp}_{nombre_original.replace(' ', '_')}"
+            ruta_uploads = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
+            os.makedirs(ruta_uploads, exist_ok=True)
+            ruta_destino = os.path.join(ruta_uploads, nombre_limpio)
+            with open(ruta_destino, 'wb') as f:
+                f.write(campo.file.read())
+            self._enviar_json({
+                'mensaje': 'Archivo subido correctamente',
+                'archivo': nombre_limpio,
+                'url': f'/uploads/{nombre_limpio}'
+            }, 201)
+        except Exception as e:
+            self._enviar_error(f'Error al subir archivo: {str(e)}', 500)
+
     # ─── ARCHIVOS ESTÁTICOS ──────────────────────────────────────────────────
 
     def _servir_estatico(self, ruta):
         if ruta == '' or ruta == '/':
             ruta = '/index.html'
-        ruta_archivo = os.path.join(RUTA_FRONTEND, ruta.lstrip('/'))
+        if ruta.startswith('/uploads/'):
+            ruta_archivo = os.path.join(os.path.dirname(os.path.dirname(__file__)), ruta.lstrip('/'))
+        else:
+            ruta_archivo = os.path.join(RUTA_FRONTEND, ruta.lstrip('/'))
         if not os.path.exists(ruta_archivo) or os.path.isdir(ruta_archivo):
             ruta_archivo = os.path.join(RUTA_FRONTEND, 'index.html')
         if not os.path.exists(ruta_archivo):
@@ -1099,6 +1530,7 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', tipo_mime)
             self.send_header('Content-Length', str(len(contenido)))
+            self._enviar_headers_seguridad()
             self._enviar_cors()
             self.end_headers()
             self.wfile.write(contenido)
@@ -1125,6 +1557,34 @@ def main():
         print(f'[Servidor] No se encontró {ruta_sql}, se usarán las tablas existentes si ya fueron creadas.')
 
     # Las rutinas persisten en BD. El cache local de Wger evita llamadas repetidas.
+
+    # ── Migraciones: agrega columnas nuevas sin perder datos ────
+    def _aplicar_migraciones():
+        conexion = obtener_conexion()
+        if not conexion:
+            return
+        try:
+            cursor = conexion.cursor()
+            migraciones = [
+                "ALTER TABLE usuarios ADD COLUMN token_verificacion_correo VARCHAR(64) DEFAULT NULL",
+                "ALTER TABLE usuarios ADD COLUMN correo_verificado TINYINT(1) NOT NULL DEFAULT 0",
+            ]
+            for sql in migraciones:
+                try:
+                    cursor.execute(sql)
+                    conexion.commit()
+                    print(f"[BD] Migración aplicada: {sql[:70]}...")
+                except Exception as e:
+                    if 'Duplicate column' in str(e) or 'Duplicate' in str(e):
+                        pass
+                    else:
+                        print(f"[BD] Nota: {e}")
+            cursor.close()
+        except Exception as e:
+            print(f"[BD] Error en migraciones: {e}")
+        finally:
+            cerrar_conexion(conexion)
+    _aplicar_migraciones()
 
     servidor = HTTPServer(('0.0.0.0', PUERTO), ManejadorSilverBack)
     try:

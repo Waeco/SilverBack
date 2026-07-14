@@ -10,6 +10,7 @@ Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dieta
 | Backend principal | Python 3.10+ (http.server nativo) — puerto 8000 |
 | Backend secundario | Python 3.10+ (FastAPI + Uvicorn) — puerto 8001 |
 | Frontend | React 18 + Vite + TailwindCSS + Framer Motion |
+| Autenticación | JWT (PyJWT, HS256, expiración 24h) |
 | APIs externas | FatSecret (proxy OAuth 1.0a) + Wger (mirror local de ejercicios) |
 
 ---
@@ -72,7 +73,7 @@ Esto crea la base de datos `silverback_db` con 14 tablas:
 ### Instalar dependencias
 
 ```powershell
-pip install mysql-connector-python requests fastapi uvicorn pydantic
+pip install mysql-connector-python requests fastapi uvicorn pydantic pyjwt
 ```
 
 ### Configurar conexión a BD
@@ -142,31 +143,49 @@ O usa el script de inicio que arranca ambos:
 .\iniciar_servidor.ps1
 ```
 
+**Producción** (con auto-reinicio ante caídas):
+```powershell
+.\iniciar_servidor_produccion.ps1
+```
+
 ---
 
 ### Endpoints del Servidor Principal (puerto 8000)
 
 #### Autenticación
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/auth` | Iniciar sesión |
-| POST | `/api/registro` | Registrar usuario |
+| Método | Ruta | Descripción | Auth |
+|--------|------|-------------|------|
+| POST | `/api/auth` | Iniciar sesión (JWT, rate limit 5 intentos) | No |
+| POST | `/api/registro` | Registrar usuario + envío de verificación email | No |
+| POST | `/api/recuperar-password` | Solicitar enlace de recuperación (SMTP) | No |
+| POST | `/api/cambiar-password` | Restablecer contraseña con token | No |
+| GET | `/api/verificar-correo?token&id` | Verificar correo electrónico | No |
 
 #### Usuarios
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/usuario` | Listar todos (admin) |
-| GET | `/api/usuario/{id}` | Obtener usuario + perfil completo |
-| PUT | `/api/usuario/{id}` | Actualizar nombre/correo |
+| Método | Ruta | Descripción | Rol |
+|--------|------|-------------|-----|
+| GET | `/api/usuario` | Listar todos | Admin |
+| GET | `/api/usuario/{id}` | Obtener usuario + perfil completo | Propio |
+| PUT | `/api/usuario/{id}` | Actualizar nombre/correo | Propio |
 
 #### Comidas
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/comidas?fecha&id_paciente` | Comidas de un día |
-| GET | `/api/dias-con-comidas?mes&id_paciente` | Días del mes con registro |
-| POST | `/api/comidas` | Guardar comida |
-| PUT | `/api/comidas/{id}` | Actualizar comida |
-| DELETE | `/api/comidas/{id}` | Eliminar comida |
+| Método | Ruta | Descripción | Rol |
+|--------|------|-------------|-----|
+| GET | `/api/comidas?fecha&id_paciente` | Comidas de un día | Cualquiera |
+| GET | `/api/dias-con-comidas?mes&id_paciente` | Días del mes con registro | Cualquiera |
+| POST | `/api/comidas` | Guardar comida | Cualquiera |
+| PUT | `/api/comidas/{id}` | Actualizar comida | Cualquiera |
+| DELETE | `/api/comidas/{id}` | Eliminar comida | Cualquiera |
+
+#### Subida de archivos
+| Método | Ruta | Descripción | Rol |
+|--------|------|-------------|-----|
+| POST | `/api/upload` | Subir archivo (PNG/JPG/PDF/DOC, max 5MB) | Cualquiera |
+
+#### Respaldos
+| Método | Ruta | Descripción | Rol |
+|--------|------|-------------|-----|
+| POST | `/api/backup` | Generar respaldo mysqldump | Admin |
 
 #### FatSecret (proxy)
 | Método | Ruta | Descripción |
@@ -277,6 +296,8 @@ Genera los archivos estáticos en `frontend/dist/`, servidos automáticamente po
 |------|--------|-----|-------------|
 | `/login` | Login | Todos | Inicio de sesión |
 | `/registro` | Registro | Todos | Crear cuenta |
+| `/recuperar-password` | Recuperar | Todos | Solicitar enlace de recuperación |
+| `/restablecer` | Restablecer | Todos | Cambiar contraseña con token |
 | `/dashboard` | Dashboard | Todos | Vista adaptada al rol |
 | `/dieta` | Dieta | Atleta | Dieta del día seleccionado |
 | `/rutina` | Rutina | Atleta | Rutina de ejercicios |
@@ -321,7 +342,8 @@ SilverBack/
 │       │   ├── VistaCalendario.jsx
 │       │   ├── ModalAgregarComida.jsx
 │       │   ├── EditorDietaPaciente.jsx
-│       │   └── EditorRutinaPaciente.jsx
+│       │   ├── EditorRutinaPaciente.jsx
+│       │   └── ValidadorPassword.jsx
 │       └── paginas/
 │           ├── Dashboard.jsx
 │           ├── PaginaLogin.jsx
@@ -333,7 +355,10 @@ SilverBack/
 │           ├── PaginaHistorialMedico.jsx
 │           ├── CatalogoNutriologos.jsx
 │           ├── PaginaPacientes.jsx
-│           └── PaginaAdminUsuarios.jsx
+│           ├── PaginaAdminUsuarios.jsx
+│           ├── PaginaRecuperarPassword.jsx
+│           ├── PaginaRestablecerPassword.jsx
+│           └── PaginaNoEncontrada.jsx
 ├── iniciar_servidor.ps1             # Script de inicio (no versionado, tiene API keys)
 ├── base_de_datos.sql                # Script de BD completo (14 tablas + seed)
 └── README.md
@@ -402,3 +427,13 @@ cd frontend; npm run dev
 - **Solicitudes**: Los pacientes sin nutriólogo pueden solicitar asignación; el nutriólogo acepta/rechaza.
 - **Citas con calendario**: Calendario mensual interactivo con indicadores de tipo (videollamada azul, presencial verde).
 - **FatSecret**: Proxy OAuth 1.0a funcional con credenciales reales.
+- **JWT**: Autenticación con tokens JWT (HS256, expiración 24h).
+- **Rate limiting**: 5 intentos fallidos de login bloquean 15 minutos.
+- **Verificación email**: Correo de confirmación al registrarse con enlace único.
+- **Recuperación de contraseña**: Enlace por correo con token de 1 hora, enviado en hilo separado.
+- **Validador de contraseña**: Popup en tiempo real con requisitos (6+ chars, mayúscula, minúscula, número, coincidencia).
+- **Seguridad**: Headers X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy. Control de roles por endpoint.
+- **Subida de archivos**: Endpoint POST /api/upload con validación de tipo (PNG/JPG/PDF/DOC) y tamaño máximo (5MB).
+- **Backup**: Endpoint POST /api/backup (admin) que ejecuta mysqldump.
+- **404 personalizada**: Página de error con diseño coherente y navegación.
+- **Code splitting**: Carga diferida de páginas con React.lazy(). Bundle principal reducido de 618KB a 356KB.
