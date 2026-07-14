@@ -5,7 +5,7 @@ CONFIG = {
     'host': 'localhost',
     'port': 3306,
     'user': 'root',
-    'password': 'root',
+    'password': 'SilverBack2026!',
     'database': 'silverback_db',
     'charset': 'utf8mb4',
     'collation': 'utf8mb4_unicode_ci',

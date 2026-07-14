@@ -131,14 +131,6 @@ export async function desactivarDieta(idPlan) {
   return cliente.delete(`/dieta/${idPlan}`)
 }
 
-// --- Cliente FastAPI (puerto 8001) ---
-const clienteFast = axios.create({
-  baseURL: 'http://localhost:8001/api',
-  timeout: 10000,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-// --- Viejos endpoints (http.server puerto 8000) ---
 export async function buscarEjercicios(termino) {
   return cliente.get('/buscar-ejercicios', { params: { termino } })
 }

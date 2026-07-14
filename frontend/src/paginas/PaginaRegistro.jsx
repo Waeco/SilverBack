@@ -11,8 +11,8 @@ export default function PaginaRegistro() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (estaAutenticado) navigate('/dashboard', { replace: true })
-  }, [estaAutenticado, navigate])
+    if (estaAutenticado) navigate('/dashboard', { replace: true })  }, [estaAutenticado, navigate])
+
   const [rol, setRol] = useState('atleta')
   const [nombre, setNombre] = useState('')
   const [correo, setCorreo] = useState('')
@@ -46,17 +46,35 @@ export default function PaginaRegistro() {
       setError('La contraseña no cumple con todos los requisitos')
       return
     }
+    
+    // 🤖 VALIDACIÓN VISUAL ANTES DE MANDAR AL BACKEND
+    if (!captchaToken) {
+      setError('Por favor, completa el Captcha para demostrar que no eres un robot.')
+      return
+    }
 
     setCargando(true)
+
     try {
-      const datos = { nombre_completo: nombre, correo, contrasena, rol }
-      if (rol === 'nutriologo') {
-        datos.cedula = cedula
-      }
-      await registrarUsuario(datos)
-      navigate('/login')
+      // Mandamos todos los campos incluyendo el token del captcha
+      await registrarUsuario({
+        rol,
+        nombre_completo: nombre,
+        correo,
+        contrasena,
+        cedula_profesional: rol === 'nutriologo' ? cedula : null,
+        captcha_token: captchaToken // <--- NUEVO CAMPO ENVIADO AL BACKEND
+      })
+      
+      navigate('/login', { replace: true })
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al registrar')
+      setError(err.message || 'Error al registrar usuario')
+      
+      // 🤖 SI EL REGISTRO FALLA, REINICIAMOS EL CAPTCHA POR SEGURIDAD
+      if (captchaRef.current) {
+        captchaRef.current.reset()
+      }
+      setCaptchaToken(null)
     } finally {
       setCargando(false)
     }
@@ -64,51 +82,49 @@ export default function PaginaRegistro() {
 
   return (
     <div className="min-h-screen bg-base flex items-center justify-center p-4">
-      <motion.div
+      <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
         className="w-full max-w-md"
       >
         <div className="tarjeta">
-          <Link to="/login" className="inline-flex items-center gap-1.5 text-sm text-texto-muted hover:text-texto-secondary mb-6">
-            <ArrowLeft className="w-4 h-4" />
-            Volver
-          </Link>
-
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-white font-bold text-lg">SB</span>
-            </div>
+            <Link to="/login" className="p-1.5 rounded-lg hover:bg-base-claro text-texto-muted hover:text-texto-primary transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
             <div>
-              <h1 className="text-xl font-bold text-texto-primary">SilverBack</h1>
-              <p className="text-sm text-texto-muted">Crear cuenta</p>
+              <h1 className="text-xl font-bold text-texto-primary">Crear Cuenta</h1>
+              <p className="text-sm text-texto-muted">Únete a SilverBack</p>
             </div>
           </div>
 
-          <div className="flex gap-2 mb-6 p-1 rounded-lg bg-base-claro">
+          {error && (
+            <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-error text-sm mb-4">
+              {error}
+            </div>
+          )}
+
+          <div className="flex p-1 bg-base-claro rounded-lg mb-6">
             <button
-              onClick={() => setRol('atleta')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${
-                rol === 'atleta' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-texto-muted hover:text-texto-primary'
-              }`}
+              type="button"
+              onClick={() => { setRol('atleta'); setError(null); }}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all
+                ${rol === 'atleta' ? 'bg-card text-primary shadow-sm' : 'text-texto-muted hover:text-texto-secondary'}`}
             >
               <User className="w-4 h-4" />
               Atleta
             </button>
             <button
-              onClick={() => setRol('nutriologo')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${
-                rol === 'nutriologo' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-texto-muted hover:text-texto-primary'
-              }`}
+              type="button"
+              onClick={() => { setRol('nutriologo'); setError(null); }}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all
+                ${rol === 'nutriologo' ? 'bg-card text-primary shadow-sm' : 'text-texto-muted hover:text-texto-secondary'}`}
             >
               <Stethoscope className="w-4 h-4" />
               Nutriólogo
             </button>
           </div>
-
-          {error && (
-            <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-error text-sm mb-4">{error}</div>
-          )}
 
           <form onSubmit={manejarEnvio} className="space-y-4">
             <div>
@@ -139,6 +155,17 @@ export default function PaginaRegistro() {
               <label htmlFor="reg-confirm" className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
               <input id="reg-confirm" name="confirmar_contrasena" type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} className="input" placeholder="Repite la contraseña" />
             </div>
+
+            {/* 🤖 CASILLA DE RECAPTCHA EN TEMA OSCURO */}
+            <div className="flex justify-center py-2">
+              <ReCAPTCHA
+                ref={captchaRef}
+                sitekey="6Lf35TEtAAAAAEQ1JX_Ez4hgdPrw58_OszpXPV_5" // <--- CAMBIA ESTO por tu clave pública de Google Admin
+                onChange={manejarCambioCaptcha}
+                theme="dark"
+              />
+            </div>
+
             <button type="submit" disabled={cargando} className="btn-primary w-full flex items-center justify-center gap-2">
               {cargando && <Loader2 className="w-4 h-4 animate-spin" />}
               {cargando ? 'Registrando...' : 'Crear Cuenta'}

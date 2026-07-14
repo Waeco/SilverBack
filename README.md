@@ -1,14 +1,13 @@
 # SilverBack — Plataforma de Nutrición Deportiva
 
-Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dietas, rutinas de ejercicio, citas, historial médico y seguimiento de macros.
+Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dietas, rutinas de ejercicio, citas y seguimiento de macros.
 
 ## Stack Tecnológico
 
 | Capa | Tecnología |
 |------|-----------|
 | Base de datos | MySQL 8.0 |
-| Backend principal | Python 3.10+ (http.server nativo) — puerto 8000 |
-| Backend secundario | Python 3.10+ (FastAPI + Uvicorn) — puerto 8001 |
+| Backend | Python 3.10+ (http.server nativo, sin frameworks) |
 | Frontend | React 18 + Vite + TailwindCSS + Framer Motion |
 | Autenticación | JWT (PyJWT, HS256, expiración 24h) |
 | APIs externas | FatSecret (proxy OAuth 1.0a) + Wger (mirror local de ejercicios) |
@@ -17,9 +16,10 @@ Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dieta
 
 ## Requisitos
 
-- **MySQL 8.0** instalado y funcionando (puerto 3306, usuario `root`, contraseña `root`)
+- **MySQL 8.0** instalado y funcionando (puerto 3306)
 - **Python 3.10+** con `pip`
 - **Node.js 18+** con `npm`
+- **Git** (opcional)
 
 ---
 
@@ -28,35 +28,29 @@ Aplicación full-stack para conectar atletas con nutriólogos. Gestión de dieta
 ### Iniciar MySQL
 
 ```powershell
-# Si tienes MySQL como servicio:
-net start MySQL80
-
-# O manualmente (reemplaza la ruta según tu instalación):
-& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe" --console
+# Desde PowerShell (usando datadir local del proyecto)
+& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe" --no-defaults --datadir=C:\Users\esaua\SilverBack\mysql_data --port=3306 --console
 ```
+
+> ⚠️ Si ya tienes MySQL como servicio, solo asegúrate de que esté corriendo en puerto 3306 con usuario `root` y contraseña `root`.
 
 ### Crear BD, tablas y datos de prueba
 
 ```powershell
-# Reemplaza la ruta del SQL según tu proyecto
-cmd /c '"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -proot < "ruta\a\base_de_datos.sql"'
+cmd /c '"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -proot < "C:\Users\esaua\SilverBack\base_de_datos.sql"'
 ```
 
-Esto crea la base de datos `silverback_db` con 14 tablas:
+Esto crea la base de datos `silverback_db` con 10 tablas:
 - `usuarios` — Atletas, nutriólogos y admins
-- `pacientes_perfil` — Perfil extendido de atletas (incluye `id_nutriologo_asignado`)
+- `pacientes_perfil` — Perfil extendido de atletas
 - `nutriologos_perfil` — Perfil extendido de nutriólogos
-- `solicitudes_nutriologo` — Solicitudes de pacientes para ser asignados a un nutriólogo
 - `comidas_diarias` — Registro de alimentos por fecha y tipo de comida
-- `citas` — Citas con tipo (videollamada/presencial), hora, estado y notas
+- `citas` — Citas entre paciente y nutriólogo
 - `registro_habitos` — Resumen diario (peso, agua, calorías)
-- `historial_medico` — Registros de peso, altura, enfermedades, alergias y notas
-- `ejercicios` — Mirror local de ejercicios desde Wger (846 ejercicios en español)
 - `planes_dieta` — Planes de dieta asignados por nutriólogos
 - `detalles_dieta` — Alimentos dentro de un plan de dieta
 - `planes_rutina` — Planes de rutina asignados por nutriólogos
 - `detalles_rutina` — Ejercicios dentro de un plan de rutina
-- `cache_alimentos` — Cache de búsquedas en FatSecret
 
 ### Usuarios de prueba (seed data)
 
@@ -76,9 +70,9 @@ Esto crea la base de datos `silverback_db` con 14 tablas:
 pip install mysql-connector-python requests fastapi uvicorn pydantic pyjwt
 ```
 
-### Configurar conexión a BD
+### Configurar conexión
 
-Edita `backend/configuracion_bd.py` si tu usuario/contraseña son distintos:
+El archivo `backend/configuracion_bd.py` ya contiene las credenciales:
 
 ```python
 CONFIG = {
@@ -92,51 +86,15 @@ CONFIG = {
 }
 ```
 
-### APIs externas (opcional)
+### Ejecutar servidor
 
-Crea un archivo `iniciar_servidor.ps1` con tus claves (no incluido en el repo):
-
-```powershell
-$env:FATSECRET_CLIENT_ID = 'tu_client_id'
-$env:FATSECRET_CLIENT_SECRET = 'tu_client_secret'
-$env:WGER_API_KEY = 'tu_wger_api_key'
-
-# Iniciar FastAPI (ejercicios, rutinas, historial, solicitudes)
-$jobFast = Start-Job -ScriptBlock {
-  Set-Location ruta\del\proyecto
-  python -m uvicorn backend.fastapi_app:app --host 0.0.0.0 --port 8001
-}
-
-Start-Sleep -Seconds 2
-
-# Iniciar servidor principal
-python backend/servidor.py
-```
-
-Sin credenciales de FatSecret → devuelve 10 alimentos simulados.
-Sin Wger API key → la API pública funciona con rate limiting.
-
-### Poblar mirror local de ejercicios (una sola vez)
-
-```powershell
-python backend/poblar_ejercicios.py
-```
-
-Descarga 846+ ejercicios en español desde Wger y los inserta en la tabla `ejercicios`.
-
-### Ejecutar servidores
-
-Hay dos servidores que deben correr simultáneamente:
-
-**Servidor principal** (puerto 8000):
 ```powershell
 python backend\servidor.py
 ```
 
-**Servidor FastAPI** (puerto 8001) para ejercicios, rutinas, historial y solicitudes:
-```powershell
-python -m uvicorn backend.fastapi_app:app --host 0.0.0.0 --port 8001
-```
+El servidor inicia en `http://localhost:8000` y sirve:
+- API REST en `/api/*`
+- Frontend compilado desde `frontend/dist/`
 
 O usa el script de inicio que arranca ambos:
 ```powershell
@@ -190,78 +148,62 @@ O usa el script de inicio que arranca ambos:
 #### FatSecret (proxy)
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/buscar-alimentos?termino` | Buscar alimentos |
+| GET | `/api/buscar-alimentos?termino=pollo` | Buscar alimentos vía FatSecret OAuth 1.0a |
+
+#### Wger (proxy)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/buscar-ejercicios?termino=press` | Buscar ejercicios vía Wger API v2 |
 
 #### Citas
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/citas?id_usuario&rol` | Listar citas (filtra por rol) |
-| POST | `/api/citas` | Crear cita (body: `{id_paciente, id_nutriologo, fecha, hora, tipo, notas}`) |
-| PUT | `/api/citas/{id}` | Actualizar estado de cita |
-| DELETE | `/api/citas/{id}` | Eliminar cita |
+| GET | `/api/citas?id_usuario=X&rol=atleta\|nutriologo` | Listar citas |
+| POST | `/api/citas` | Crear cita |
+| PUT | `/api/citas/{id}` | Actualizar estado |
+| DELETE | `/api/citas/{id}` | Cancelar cita |
 
 #### Hábitos
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/habitos?id_paciente&fecha` | Obtener hábitos |
+| GET | `/api/habitos?id_paciente=X&fecha=YYYY-MM-DD` | Obtener hábitos |
 | POST | `/api/habitos` | Guardar hábito |
 
 #### Nutriólogos
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/nutriologos?termino&pagina&limite` | Catálogo con búsqueda y paginación |
+| GET | `/api/nutriologos?termino=&pagina=1&limite=10` | Catálogo con búsqueda y paginación |
 
 #### Pacientes
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/pacientes?id_nutriologo` | Pacientes asignados a un nutriólogo |
-
-#### Dieta
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/dieta/{id_paciente}` | Plan de dieta activo |
-| POST | `/api/dieta` | Asignar plan de dieta |
-| DELETE | `/api/dieta/{id_plan}` | Desactivar plan |
+| GET | `/api/pacientes?id_nutriologo=X` | Pacientes asignados a un nutriólogo |
 
 #### Admin
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/admin/stats` | Estadísticas del sistema |
-| PUT | `/api/admin/usuarios/{id}` | Actualizar usuario |
-| DELETE | `/api/admin/usuarios/{id}` | Eliminar usuario |
+| GET | `/api/admin/stats` | Estadísticas del sistema (usuarios, citas, etc.) |
+| PUT | `/api/admin/usuarios/{id}` | Actualizar usuario (admin) |
+| DELETE | `/api/admin/usuarios/{id}` | Eliminar usuario con cascade (admin) |
 
-### Endpoints del Servidor FastAPI (puerto 8001)
-
-#### Ejercicios
+#### Dieta
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/ejercicios/buscar?q=press` | Buscar ejercicios en mirror local |
-| GET | `/api/ejercicios/{id}` | Obtener detalle de un ejercicio |
+| GET | `/api/dieta/{id_paciente}` | Obtener plan de dieta activo |
+| POST | `/api/dieta` | Asignar plan de dieta |
+| DELETE | `/api/dieta/{id_plan}` | Desactivar plan de dieta |
 
-#### Rutinas
+#### Rutina
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/rutinas/paciente/{id_paciente}` | Obtener rutina activa con detalles |
-| POST | `/api/rutinas` | Asignar rutina (máx. 10 ejercicios) |
-| DELETE | `/api/rutinas/{id_plan}` | Desactivar rutina |
+| GET | `/api/rutina/{id_paciente}` | Obtener plan de rutina activo |
+| POST | `/api/rutina` | Asignar plan de rutina |
+| DELETE | `/api/rutina/{id_plan}` | Desactivar plan de rutina |
 
-#### Historial Médico
+#### Salud
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/api/historial/{id_paciente}` | Obtener todo el historial |
-| POST | `/api/historial` | Crear un registro individual |
-| POST | `/api/historial/completo` | Crear múltiples registros (peso, altura, enfermedades, etc.) |
-| PUT | `/api/historial/{id}` | Actualizar un registro |
-| DELETE | `/api/historial/{id}` | Eliminar un registro |
-
-#### Solicitudes Nutriólogo
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/api/solicitudes` | Paciente envía solicitud a nutriólogo |
-| GET | `/api/solicitudes/pendientes/{id_nutriologo}` | Nutriólogo ve solicitudes |
-| PUT | `/api/solicitudes/{id}/aceptar` | Aceptar solicitud y asignar paciente |
-| PUT | `/api/solicitudes/{id}/rechazar` | Rechazar solicitud |
-| DELETE | `/api/paciente/{id_paciente}/nutriologo` | Paciente quita a su nutriólogo |
+| GET | `/api/salud` | Health check del servidor |
 
 ---
 
@@ -280,7 +222,7 @@ npm install
 npm run dev
 ```
 
-Abre en `http://localhost:5173` con hot-reload. Se comunica con ambos backends (8000 y 8001).
+El frontend se abre en `http://localhost:5173` con hot-reload. Se comunica con el backend en `http://localhost:8000/api`.
 
 ### Compilar para producción
 
@@ -288,7 +230,7 @@ Abre en `http://localhost:5173` con hot-reload. Se comunica con ambos backends (
 npm run build
 ```
 
-Genera los archivos estáticos en `frontend/dist/`, servidos automáticamente por el backend en `http://localhost:8000`.
+Genera los archivos estáticos en `frontend/dist/`, que el backend sirve automáticamente en `http://localhost:8000`.
 
 ### Páginas del frontend
 
@@ -311,32 +253,65 @@ Genera los archivos estáticos en `frontend/dist/`, servidos automáticamente po
 
 ---
 
-## 4. Estructura del Proyecto
+## 4. Integración con FatSecret
+
+El backend actúa como proxy hacia la API de FatSecret.
+
+### FatSecret (proxy OAuth 1.0a)
+
+El backend firma cada solicitud con OAuth 1.0a usando credenciales del panel **REST API OAuth 1.0 Credentials** de FatSecret.
+
+```powershell
+$env:FATSECRET_CLIENT_ID='TU_CLIENTE_ID'
+$env:FATSECRET_CLIENT_SECRET='TU_CLIENTE_SECRETO'
+```
+
+Sin credenciales → devuelve 10 alimentos simulados (avena, pollo, salmón, etc.).
+
+### Wger (proxy ejercicios)
+
+El backend busca ejercicios usando el endpoint `exercise-translation` de Wger API v2.
+
+```powershell
+$env:WGER_API_KEY='TU_API_KEY'
+```
+
+Sin clave → devuelve 15 ejercicios simulados (flexiones, sentadillas, press, etc.). La API pública de Wger funciona sin clave (con rate limiting).
+
+### Script de inicio
+
+```powershell
+.\iniciar_servidor.ps1
+```
+
+Configura automáticamente las variables de entorno y arranca el servidor en el puerto 8000.
+
+---
+
+## 5. Estructura del Proyecto
 
 ```
 SilverBack/
 ├── backend/
-│   ├── configuracion_bd.py          # Conexión MySQL
-│   ├── conector_fatsecret.py        # Proxy OAuth 1.0a hacia FatSecret
-│   ├── conector_wger.py             # Proxy hacia Wger API v2
-│   ├── fastapi_app.py               # FastAPI: ejercicios, rutinas, historial, solicitudes
-│   ├── poblar_ejercicios.py         # Seeder: descarga 846+ ejercicios de Wger
-│   └── servidor.py                  # Servidor HTTP principal + API REST
+│   ├── configuracion_bd.py        # Conexión MySQL
+│   ├── conector_fatsecret.py      # Proxy OAuth 1.0a hacia FatSecret
+│   ├── conector_wger.py           # Proxy hacia Wger API v2
+│   └── servidor.py                # Servidor HTTP + API REST (~1060 líneas)
 ├── frontend/
-│   ├── index.html
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── tailwind.config.js
-│   ├── postcss.config.js
+│   ├── index.html                 # Entry point HTML con Google Fonts
+│   ├── package.json               # Dependencias Node
+│   ├── vite.config.js             # Configuración Vite
+│   ├── tailwind.config.js         # Configuración TailwindCSS
+│   ├── postcss.config.js          # Configuración PostCSS
 │   └── src/
-│       ├── main.jsx
-│       ├── index.css
-│       ├── App.jsx
+│       ├── main.jsx               # Entry point React
+│       ├── index.css              # Estilos globales + Tailwind + SweetAlert2 oscuro
+│       ├── App.jsx                # Router plano con rutas protegidas
 │       ├── context/
-│       │   └── ContextoAutenticacion.jsx
+│       │   └── ContextoAutenticacion.jsx  # Sesión de usuario (localStorage)
 │       ├── servicios/
-│       │   ├── ApiServicio.js       # Cliente Axios (puerto 8000 y 8001)
-│       │   └── AlertasServicio.js   # SweetAlert2 oscuro
+│       │   ├── ApiServicio.js     # Cliente Axios para todos los endpoints
+│       │   └── AlertasServicio.js # Wrapper SweetAlert2 con tema oscuro
 │       ├── componentes/
 │       │   ├── BarraNavegacion.jsx
 │       │   ├── VistaCalendario.jsx
@@ -366,52 +341,22 @@ SilverBack/
 
 ---
 
-## 5. Flujo de Inicio Rápido
+## 6. Flujo de Inicio Rápido
 
 ```powershell
-# 1. Iniciar MySQL (si no está como servicio)
-& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe" --console
+# Terminal 1: Iniciar MySQL
+& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe" --no-defaults --datadir=C:\Users\esaua\SilverBack\mysql_data --port=3306 --console
 
-# 2. Crear BD (una sola vez)
-cmd /c '"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -proot < "base_de_datos.sql"'
-
-# 3. Poblar ejercicios desde Wger (una sola vez)
-python backend/poblar_ejercicios.py
-
-# 4. Iniciar servidores (PowerShell)
+# Terminal 2: Iniciar Backend (con env vars)
 .\iniciar_servidor.ps1
+# O manualmente: python backend\servidor.py
 
-# 5. (Opcional) Frontend en desarrollo
+# Terminal 3: Iniciar Frontend (desarrollo)
 cd frontend; npm run dev
 
-# Abrir http://localhost:5173 (dev) o http://localhost:8000 (prod)
+# Abrir http://localhost:5173
 # Usuario: juan@ejemplo.com / test1234
 ```
-
----
-
-## 6. Funcionalidades por Rol
-
-### Atleta
-- Ver/editar dieta propia (si no tiene plan asignado)
-- Ver/editar rutina propia (si no tiene plan asignado)
-- Explorar catálogo de nutriólogos con búsqueda
-- **Enviar solicitud** a un nutriólogo para ser asignado
-- **Quitar nutriólogo** desde su perfil
-- Ver historial médico (solo lectura, con resumen y navegación por días)
-- Ver citas (solo lectura, calendario)
-
-### Nutriólogo
-- Ver pacientes asignados + **solicitudes pendientes** (Aceptar/Rechazar)
-- **Asignar/quitar planes de dieta** (modal con búsqueda FatSecret)
-- **Asignar/quitar rutinas de ejercicios** (modal con búsqueda en mirror local + video embebido)
-- **Editar historial médico** del paciente (formulario completo + eliminar registros)
-- **Crear citas** desde calendario interactivo (tipo videollamada/presencial, hora, notas)
-- Ver próximas citas en sidebar
-
-### Admin
-- Estadísticas del sistema (usuarios, citas, etc.)
-- CRUD completo de usuarios (activar/desactivar, cambiar rol)
 
 ---
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, Dumbbell, Plus, Trash2, Search, X, Save, Target, Clock, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast, buscarEjerciciosFast, obtenerUsuario } from '../servicios/ApiServicio'
+import { obtenerRutinaPaciente, obtenerInfoEjercicio, asignarRutina, desactivarRutina, buscarEjercicios, obtenerUsuario } from '../servicios/ApiServicio'
 import { alertaExito, alertaError } from '../servicios/AlertasServicio'
 
 export default function PaginaRutina() {
@@ -20,6 +20,7 @@ export default function PaginaRutina() {
   const [buscando, setBuscando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [ejercicioExpandido, setEjercicioExpandido] = useState(null)
+  const [infoCargando, setInfoCargando] = useState({})
 
   // Cargar perfil para obtener id_paciente
   useEffect(() => {
@@ -41,7 +42,7 @@ export default function PaginaRutina() {
     if (!idPaciente) return
     setCargando(true)
     try {
-      const respuesta = await obtenerRutinaPacienteFast(idPaciente)
+      const respuesta = await obtenerRutinaPaciente(idPaciente)
       const data = respuesta.data
       if (data.rutina && data.rutina.id_nutriologo) {
         setRutinaActual(data.rutina)
@@ -85,8 +86,8 @@ export default function PaginaRutina() {
     if (!terminoBusqueda.trim()) return
     setBuscando(true)
     try {
-      const respuesta = await buscarEjerciciosFast(terminoBusqueda)
-      setResultadosBusqueda(respuesta.data || [])
+      const respuesta = await buscarEjercicios(terminoBusqueda)
+      setResultadosBusqueda(respuesta.data?.results || [])
     } catch {
       setResultadosBusqueda([])
     } finally {
@@ -95,7 +96,6 @@ export default function PaginaRutina() {
   }, [terminoBusqueda])
 
   const agregarEjercicio = (ejercicio) => {
-    if (itemsEdit.length >= 10) return
     const nuevo = {
       id_temp: Date.now(),
       id_ejercicio: String(ejercicio.id),
@@ -104,8 +104,8 @@ export default function PaginaRutina() {
       series: 3,
       repeticiones: '10',
       descanso: '60 seg',
-      imagen_url: ejercicio.imagen_url || ejercicio.imagen || '',
-      video_url: ejercicio.video_url || ejercicio.video || '',
+      imagen_url: ejercicio.imagen || '',
+      video_url: ejercicio.video || '',
     }
     setItemsEdit([...itemsEdit, nuevo])
     setResultadosBusqueda([])
@@ -125,14 +125,10 @@ export default function PaginaRutina() {
       alertaError('Error', 'Agrega al menos un ejercicio a tu rutina.')
       return
     }
-    if (itemsEdit.length > 10) {
-      alertaError('Límite alcanzado', 'La rutina no puede tener más de 10 ejercicios.')
-      return
-    }
     setGuardando(true)
     try {
-      const ejercicios = itemsEdit.map((i, idx) => ({
-        ejercicio_id: parseInt(i.id_ejercicio) || 0,
+      const detallesEnvio = itemsEdit.map(i => ({
+        id_ejercicio: i.id_ejercicio,
         nombre_ejercicio: i.nombre_ejercicio,
         descripcion: i.descripcion,
         series: i.series,
@@ -140,21 +136,20 @@ export default function PaginaRutina() {
         descanso: i.descanso,
         imagen_url: i.imagen_url,
         video_url: i.video_url,
-        orden: idx,
       }))
       if (rutinaActual && esPlanPropio) {
-        await desactivarRutinaFast(rutinaActual.id_plan_rutina)
+        await desactivarRutina(rutinaActual.id_plan_rutina)
       }
-      await crearRutinaFast({
+      await asignarRutina({
         id_paciente: idPaciente,
-        nombre_rutina: 'Rutina personal',
-        ejercicios,
+        id_nutriologo: null,
+        detalles: detallesEnvio,
       })
       alertaExito('Rutina guardada', 'Tu rutina se ha guardado correctamente.')
       cerrarEditor()
       cargarRutina()
     } catch (err) {
-      alertaError('Error', err.response?.data?.detail || err.response?.data?.error || 'Error al guardar la rutina.')
+      alertaError('Error', err.response?.data?.error || 'Error al guardar la rutina.')
     } finally {
       setGuardando(false)
     }
@@ -163,17 +158,38 @@ export default function PaginaRutina() {
   const eliminarRutinaPropia = async () => {
     if (!rutinaActual) return
     try {
-      await desactivarRutinaFast(rutinaActual.id_plan_rutina)
+      await desactivarRutina(rutinaActual.id_plan_rutina)
       alertaExito('Rutina eliminada', 'Tu rutina ha sido eliminada.')
       setRutinaActual(null)
       setDetalles([])
     } catch (err) {
-      alertaError('Error', err.response?.data?.detail || err.response?.data?.error || 'Error al eliminar la rutina.')
+      alertaError('Error', err.response?.data?.error || 'Error al eliminar la rutina.')
     }
   }
 
-  const expandirEjercicio = (idx) => {
-    setEjercicioExpandido(ejercicioExpandido === idx ? null : idx)
+  const expandirEjercicio = async (idx, item) => {
+    if (ejercicioExpandido === idx) {
+      setEjercicioExpandido(null)
+      return
+    }
+    setEjercicioExpandido(idx)
+    if (!item.imagen_url && !item.video_url && item.id_ejercicio) {
+      setInfoCargando(prev => ({ ...prev, [idx]: true }))
+      try {
+        const resp = await obtenerInfoEjercicio(item.id_ejercicio)
+        const info = resp.data
+        if (info) {
+          setDetalles(prev => prev.map((d, i) =>
+            i === idx
+              ? { ...d, imagen_url: info.imagen || '', video_url: info.video || '', descripcion: info.descripcion || d.descripcion }
+              : d
+          ))
+        }
+      } catch {
+      } finally {
+        setInfoCargando(prev => ({ ...prev, [idx]: false }))
+      }
+    }
   }
 
   if (cargando) {
@@ -260,7 +276,9 @@ export default function PaginaRutina() {
                       onClick={() => expandirEjercicio(idx, item)}
                       className="text-xs text-primary hover:text-primary-claro flex items-center gap-1 mt-0.5"
                     >
-                      {ejercicioExpandido === idx ? (
+                      {infoCargando[idx] ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : ejercicioExpandido === idx ? (
                         <ChevronUp className="w-3 h-3" />
                       ) : (
                         <ChevronDown className="w-3 h-3" />
@@ -289,29 +307,38 @@ export default function PaginaRutina() {
                     exit={{ height: 0, opacity: 0 }}
                     className="px-4 pb-4"
                   >
-                    <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion || 'Sin descripción disponible.'}</p>
-                    {item.imagen_url && (
-                      <div className="mt-3 rounded-xl overflow-hidden border border-gray-800/30">
-                        <img
-                          src={item.imagen_url}
-                          alt={item.nombre_ejercicio}
-                          className="w-full h-auto max-h-80 object-contain bg-gray-900"
-                          loading="lazy"
-                        />
+                    {infoCargando[idx] ? (
+                      <div className="flex items-center gap-2 py-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        <span className="text-xs text-texto-muted">Cargando detalles...</span>
                       </div>
-                    )}
-                    {item.video_url && (
-                      <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
-                        <iframe
-                          src={item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be')
-                            ? item.video_url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/').split('&')[0]
-                            : item.video_url}
-                          className="w-full h-full"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          title={`Video de ${item.nombre_ejercicio}`}
-                        />
-                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion || 'Sin descripción disponible.'}</p>
+                        {item.imagen_url && (
+                          <div className="mt-3 rounded-xl overflow-hidden border border-gray-800/30">
+                            <img
+                              src={item.imagen_url}
+                              alt={item.nombre_ejercicio}
+                              className="w-full h-auto max-h-80 object-contain bg-gray-900"
+                              loading="lazy"
+                            />
+                          </div>
+                        )}
+                        {item.video_url && (
+                          <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
+                            <iframe
+                              src={item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be')
+                                ? item.video_url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/').split('&')[0]
+                                : item.video_url}
+                              className="w-full h-full"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              title={`Video de ${item.nombre_ejercicio}`}
+                            />
+                          </div>
+                        )}
+                      </>
                     )}
                   </motion.div>
                 )}
@@ -365,17 +392,13 @@ export default function PaginaRutina() {
                         {buscando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                       </button>
                     </div>
-                    {itemsEdit.length >= 10 && (
-                      <p className="text-xs text-warning mt-1">Límite de 10 ejercicios alcanzado.</p>
-                    )}
                     {resultadosBusqueda.length > 0 && (
                       <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
                         {resultadosBusqueda.map((ej) => (
                           <button
                             key={ej.id}
                             onClick={() => agregarEjercicio(ej)}
-                            disabled={itemsEdit.length >= 10}
-                            className="w-full text-left p-2.5 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors border border-transparent hover:border-primary/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full text-left p-2.5 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors border border-transparent hover:border-primary/30"
                           >
                             <p className="text-sm font-medium text-texto-primary">{ej.nombre}</p>
                             {ej.descripcion && (
@@ -390,7 +413,7 @@ export default function PaginaRutina() {
                   {/* Items */}
                   <div>
                     <h3 className="text-sm font-semibold text-texto-primary mb-3">
-                      Ejercicios ({itemsEdit.length}/10)
+                      Ejercicios ({itemsEdit.length})
                     </h3>
                     {itemsEdit.length === 0 ? (
                       <p className="text-xs text-texto-muted/50 italic">Busca y agrega ejercicios desde arriba.</p>

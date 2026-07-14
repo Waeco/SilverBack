@@ -752,8 +752,171 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             if not self._verificar_token(roles=['nutriologo', 'admin']):
                 return
             self._asignar_rutina()
+        # ─── AGREGA ESTAS DOS LÍNEAS AQUÍ ───
+        elif len(partes) >= 3 and partes[2] == 'recuperar-password':
+            self._solicitar_recuperacion_password()
+        elif len(partes) >= 3 and partes[2] == 'cambiar-password':
+            self._cambiar_password()
+        # ────────────────────────────────────
         else:
             self._enviar_error('Ruta API no encontrada', 404)
+
+    def _solicitar_recuperacion_password(self):
+        datos = self._leer_cuerpo()
+        correo = datos.get('correo')
+
+        if not correo:
+            self._enviar_error('El correo electrónico es requerido', 400)
+            return
+
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute("SELECT id_usuario, nombre_completo FROM usuarios WHERE correo = %s", (correo,))
+            usuario = cursor.fetchone()
+            cursor.close()
+
+            if not usuario:
+                self._enviar_error('El correo no está registrado en el sistema', 404)
+                return
+
+            # Generamos el token aleatorio
+            import secrets
+            token_recuperacion = secrets.token_hex(16)
+
+            # ─────────────────────────────────────────────────────────────────
+            # 📬 CONFIGURACIÓN DEL ENVÍO DE CORREO REAL (GMAIL) ONDAS PREMIUM
+            # ─────────────────────────────────────────────────────────────────
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            # Configura aquí tus datos de Gmail:
+            REMITENTE_CORREO = "sebastianorozcoperez2108@gmail.com"  
+            REMITENTE_PASSWORD = "qvij lwef sufl rtwm"  
+
+            # Estructurar el mensaje
+            mensaje = MIMEMultipart()
+            mensaje['From'] = REMITENTE_CORREO
+            mensaje['To'] = correo
+            mensaje['Subject'] = "Restablecer Contraseña - SilverBack"
+
+            # Cuerpo del correo con diseño Premium Dark centrado en el usuario
+            cuerpo_html = f"""
+            <html>
+                <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0b0f19; color: #f3f4f6; padding: 40px 20px; margin: 0;">
+                    <div style="max-width: 550px; margin: 0 auto; background-color: #111827; padding: 40px; border-radius: 16px; border: 1px solid #1f2937; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);">
+                        
+                        <div style="text-align: center; margin-bottom: 30px;">
+                            <h1 style="color: #ff4757; font-size: 28px; font-weight: 800; letter-spacing: 2px; margin: 0; text-transform: uppercase;">
+                                Silver<span style="color: #ffffff;">Back</span>
+                            </h1>
+                            <div style="height: 2px; width: 60px; background-color: #ff4757; margin: 12px auto 0 auto; border-radius: 2px;"></div>
+                        </div>
+
+                        <div style="font-size: 15px; line-height: 1.6; color: #d1d5db;">
+                            <p style="font-size: 17px; color: #ffffff; margin-top: 0;">Hola, <strong style="color: #ff4757;">{usuario['nombre_completo']}</strong>:</p>
+                            <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en **SilverBack**. Si no realizaste esta acción, puedes ignorar este mensaje por completo.</p>
+                            
+                            <p style="margin-top: 25px; margin-bottom: 10px; font-weight: 500; color: #9ca3af; text-align: center; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">
+                                Tu token de verificación temporal
+                            </p>
+                            
+                            <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border: 1px solid #374151; padding: 20px; text-align: center; border-radius: 12px; margin: 10px 0 25px 0;">
+                                <span style="display: block; font-size: 26px; font-family: 'Courier New', Courier, monospace; font-weight: bold; color: #00f2fe; letter-spacing: 4px;">
+                                    {token_recuperacion}
+                                </span>
+                            </div>
+
+                            <p style="font-size: 13px; color: #9ca3af; line-height: 1.5;">
+                                * Por razones de seguridad, este código es de un solo uso. Introduce este token en la interfaz de la aplicación para registrar tu nueva contraseña de acceso.
+                            </p>
+                        </div>
+
+                        <div style="border-top: 1px solid #1f2937; margin: 30px 0 20px 0;"></div>
+
+                        <div style="text-align: center;">
+                            <p style="font-size: 11px; color: #6b7280; margin: 0;">
+                                © {time.strftime('%Y')} SilverBack Platform. Todos los derechos reservados.
+                            </p>
+                            <p style="font-size: 11px; color: #4b5563; margin-top: 5px;">
+                                Seguridad de Software • Sistema Automatizado de Soporte
+                            </p>
+                        </div>
+
+                    </div>
+                </body>
+            </html>
+            """
+            mensaje.attach(MIMEText(cuerpo_html, 'html'))
+
+            # Conectarse al servidor SMTP de Gmail de forma segura (Puerto 587)
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()  
+            server.login(REMITENTE_CORREO, REMITENTE_PASSWORD)
+            server.sendmail(REMITENTE_CORREO, correo, mensaje.as_string())
+            server.quit()
+            
+            print(f"[CORREO] Mensaje enviado exitosamente a {correo}")
+            # ─────────────────────────────────────────────────────────────────
+            # ─────────────────────────────────────────────────────────────────
+
+            self._enviar_json({
+                'mensaje': 'Se ha enviado un correo electrónico con tu código de recuperación.',
+                'token_desarrollo': token_recuperacion
+            })
+
+        except Exception as e:
+            # Si hay un error con el SMTP (contraseña mal puesta o bloqueo), se registrará aquí:
+            print(f"[ERROR SMTP] No se pudo enviar el correo: {str(e)}")
+            self._enviar_error(f'Error al enviar el correo de recuperación: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
+
+    def _cambiar_password(self):
+        datos = self._leer_cuerpo()
+        correo = datos.get('correo')
+        nueva_contrasena = datos.get('nueva_contrasena')
+        token = datos.get('token')
+
+        if not all([correo, nueva_contrasena, token]):
+            self._enviar_error('Campos requeridos: correo, nueva_contrasena, token', 400)
+            return
+
+        conexion = obtener_conexion()
+        if not conexion:
+            self._enviar_error('Error de conexión a la base de datos', 500)
+            return
+
+        try:
+            # Reutilizamos tu lógica exacta de cifrado con SHA-256
+            import hashlib
+            hash_nueva = hashlib.sha256(nueva_contrasena.encode('utf-8')).hexdigest()
+
+            cursor = conexion.cursor()
+            # Actualizamos la contraseña del usuario que coincida con el correo
+            cursor.execute(
+                "UPDATE usuarios SET contrasenia_hash = %s WHERE correo = %s",
+                (hash_nueva, correo)
+            )
+            conexion.commit()
+            filas_afectadas = cursor.rowcount
+            cursor.close()
+
+            if filas_afectadas == 0:
+                self._enviar_error('No se pudo actualizar la contraseña. Verifica el correo.', 404)
+                return
+
+            self._enviar_json({'mensaje': 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.'})
+
+        except Exception as e:
+            self._enviar_error(f'Error al cambiar la contraseña: {str(e)}', 500)
+        finally:
+            cerrar_conexion(conexion)
 
     def _guardar_comida(self):
         datos = self._leer_cuerpo()
@@ -870,11 +1033,49 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         correo = datos.get('correo')
         contrasena = datos.get('contrasena')
         rol = datos.get('rol', 'atleta')
+        captcha_token = datos.get('captcha_token')  # <--- Capturamos el token del frontend
 
+        # 1. Validar campos obligatorios básicos
         if not all([nombre, correo, contrasena]):
             self._enviar_error('Campos requeridos: nombre_completo, correo, contrasena', 400)
             return
 
+        # 2. VALIDAR QUE VENGA EL TOKEN DEL CAPTCHA
+        if not captcha_token:
+            self._enviar_error('Por favor, completa la verificación del Captcha', 400)
+            return
+
+        # 3. VERIFICAR EL CAPTCHA DIRECTAMENTE CON GOOGLE
+        import urllib.request
+        import urllib.parse
+        import json
+
+        LLAVE_SECRETA_RECAPTCHA = "6Lf35TEtAAAAAPxc3L3jWsSEtj7OBDRPo9IsIhHq"  # <--- Reemplaza por tu clave secreta
+        
+        url_google = "https://www.google.com/recaptcha/api/siteverify"
+        parametros = urllib.parse.urlencode({
+            'secret': LLAVE_SECRETA_RECAPTCHA,
+            'response': captcha_token
+        }).encode('utf-8')
+
+        try:
+            peticion = urllib.request.Request(url_google, data=parametros, method='POST')
+            with urllib.request.urlopen(peticion) as respuesta:
+                resultado_google = json.loads(respuesta.read().decode('utf-8'))
+            
+            # Si Google nos avisa que el captcha no es válido
+            if not resultado_google.get('success'):
+                print(f"[CAPTCHA RECHAZADO] Códigos de error: {resultado_google.get('error-codes')}")
+                self._enviar_error('La verificación del Captcha ha fallado o expiró.', 400)
+                return
+
+            print("[CAPTCHA VALIDADO] Verificación exitosa. Procediendo con el registro.")
+
+        except Exception as e:
+            self._enviar_error(f'Error al validar el Captcha con los servidores de seguridad: {str(e)}', 500)
+            return
+
+        # 4. PROCESAR EL REGISTRO NORMAL EN LA BASE DE DATOS
         import hashlib
         hash_contrasena = hashlib.sha256(contrasena.encode('utf-8')).hexdigest()
 
@@ -882,6 +1083,7 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         if not conexion:
             self._enviar_error('Error de conexión a la base de datos', 500)
             return
+            
         try:
             cursor = conexion.cursor()
             cursor.execute(
@@ -891,6 +1093,7 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
             conexion.commit()
             id_usuario = cursor.lastrowid
             cursor.close()
+
             if rol == 'atleta':
                 cursor = conexion.cursor()
                 cursor.execute(
@@ -903,7 +1106,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
                 cursor = conexion.cursor()
                 cursor.execute(
                     "INSERT INTO nutriologos_perfil (id_usuario, cedula) VALUES (%s, %s)",
-                    (id_usuario, datos.get('cedula', 'SIN_CEDULA'))
+                    # Corregido: en tu front el JSON manda 'cedula_profesional'
+                    (id_usuario, datos.get('cedula_profesional', datos.get('cedula', 'SIN_CEDULA')))
                 )
                 conexion.commit()
                 cursor.close()
@@ -1190,13 +1394,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         id_nutriologo = datos.get('id_nutriologo')
         fecha = datos.get('fecha')
         hora = datos.get('hora')
-        tipo = datos.get('tipo', 'presencial')
-        notas = datos.get('notas')
         if not all([id_paciente, id_nutriologo, fecha, hora]):
             self._enviar_error('Campos requeridos: id_paciente, id_nutriologo, fecha, hora', 400)
-            return
-        if tipo not in ('videollamada', 'presencial'):
-            self._enviar_error('Tipo debe ser videollamada o presencial', 400)
             return
         conexion = obtener_conexion()
         if not conexion:
@@ -1205,8 +1404,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         try:
             cursor = conexion.cursor()
             cursor.execute(
-                "INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, tipo, notas) VALUES (%s, %s, %s, %s, %s, %s)",
-                (id_paciente, id_nutriologo, fecha, hora, tipo, notas)
+                "INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora) VALUES (%s, %s, %s, %s)",
+                (id_paciente, id_nutriologo, fecha, hora)
             )
             conexion.commit()
             id_cita = cursor.lastrowid
