@@ -1,0 +1,86 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: silverback_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-silverback_db}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data_docker:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks:
+      - silverback_net
+
+  backend:
+    build:
+      context: ./backend
+    container_name: silverback_backend
+    restart: unless-stopped
+    working_dir: /app/backend
+    command: ["python", "-u", "servidor.py"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - silverback_net
+
+  fastapi:
+    build:
+      context: ./backend
+    container_name: silverback_fastapi
+    restart: unless-stopped
+    working_dir: /app/backend
+    command: ["uvicorn", "fastapi_app:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - silverback_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: silverback_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+      - fastapi
+    networks:
+      - silverback_net
+
+networks:
+  silverback_net:
+    driver: bridge
+
+volumes:
+  mysql_data_docker:

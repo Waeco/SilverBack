@@ -1,0 +1,13 @@
+# Entorno
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+frontend/dist/
+
+# Otros
+*.log
