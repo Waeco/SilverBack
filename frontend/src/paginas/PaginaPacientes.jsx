@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { obtenerPacientes, obtenerUsuario, obtenerSolicitudesPendientes, aceptarSolicitud, rechazarSolicitud } from '../servicios/ApiServicio'
-import { Users, Loader2, Activity, Target, Ruler, CalendarDays, ClipboardList, Dumbbell, ClipboardEdit, UserPlus, Check, X, Clock } from 'lucide-react'
+import { Users, Loader2, Activity, Target, Ruler, CalendarDays, ClipboardList, Dumbbell, ClipboardEdit, UserPlus, Check, X, Clock, MessageCircle } from 'lucide-react'
 import EditorDietaPaciente from '../componentes/EditorDietaPaciente'
 import EditorRutinaPaciente from '../componentes/EditorRutinaPaciente'
 
@@ -221,7 +221,14 @@ export default function PaginaPacientes() {
                       {p.objetivo}
                     </p>
                   )}
-                  <div className="flex gap-2 mt-3">
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <Link
+                      to={`/mensajes/${p.id_paciente}`}
+                      className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      Mensaje
+                    </Link>
                     <button
                       onClick={() => setPacienteDieta(p)}
                       className="btn-secondary text-xs flex items-center gap-1.5 px-3 py-1.5"

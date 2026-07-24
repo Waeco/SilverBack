@@ -414,6 +414,29 @@ async def enviar_solicitud(sol: SolicitudSchema):
         conn.close()
 
 
+@app.get("/api/solicitudes/pendientes-count")
+async def solicitudes_pendientes_count(id_usuario: int = Query(...)):
+    """Conteo rápido de solicitudes pendientes de un nutriólogo, a partir de su
+    id_usuario (para mostrar el badge de notificación en la barra de navegación
+    sin que el frontend tenga que conocer el id_nutriologo de antemano)."""
+    conn = obtener_conexion()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Error de conexión a BD")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT COUNT(*) AS total FROM solicitudes_nutriologo sn "
+            "JOIN nutriologos_perfil np ON np.id_nutriologo = sn.id_nutriologo "
+            "WHERE np.id_usuario = %s AND sn.estado = 'pendiente'",
+            (id_usuario,)
+        )
+        fila = cursor.fetchone()
+        return {"total": fila['total'] if fila else 0}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.get("/api/solicitudes/pendientes/{id_nutriologo}")
 async def solicitudes_pendientes(id_nutriologo: int):
     conn = obtener_conexion()

@@ -1,13 +1,31 @@
-# Entorno
+# Entornos y secretos
 .env
+frontend/.env
+*.env
+!*.env.example
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
+venv/
+.venv/
 
-# Node
+# Node / Frontend
 node_modules/
+dist/
 frontend/dist/
 
-# Otros
-*.log
+# Archivos subidos por usuarios (no es código)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Scripts locales con claves reales (usar iniciar_servidor.template.ps1 como base)
+iniciar.ps1
+iniciar_servidor.ps1
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

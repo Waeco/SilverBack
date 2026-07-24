@@ -1,7 +1,9 @@
 import axios from 'axios'
 
+export const URL_SERVIDOR = 'http://localhost:8000'
+
 const cliente = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: `${URL_SERVIDOR}/api`,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
@@ -28,12 +30,24 @@ cliente.interceptors.response.use(
   }
 )
 
-export async function iniciarSesion(correo, contrasena) {
-  return cliente.post('/auth', { correo, contrasena })
+export async function iniciarSesion(correo, contrasena, captchaToken = null) {
+  const cuerpo = { correo, contrasena }
+  if (captchaToken) cuerpo.captcha_token = captchaToken
+  return cliente.post('/auth', cuerpo)
 }
 
-export async function registrarUsuario(datos) {
-  return cliente.post('/registro', datos)
+export async function registrarUsuario(datos, captchaToken = null) {
+  const cuerpo = { ...datos }
+  if (captchaToken) cuerpo.captcha_token = captchaToken
+  return cliente.post('/registro', cuerpo)
+}
+
+export async function verificarCorreo(correo, codigo) {
+  return cliente.post('/verificar-correo', { correo, codigo })
+}
+
+export async function reenviarCodigoVerificacion(correo) {
+  return cliente.post('/reenviar-codigo', { correo })
 }
 
 export async function obtenerComidas(fecha, idPaciente = null) {
@@ -64,6 +78,19 @@ export async function obtenerUsuario(idUsuario) {
 
 export async function actualizarUsuario(idUsuario, datos) {
   return cliente.put(`/usuario/${idUsuario}`, datos)
+}
+
+export async function subirFotoPerfil(idUsuario, imagenBase64) {
+  return cliente.post(`/usuario/${idUsuario}/foto`, { imagen: imagenBase64 })
+}
+
+export async function eliminarFotoPerfil(idUsuario) {
+  return cliente.delete(`/usuario/${idUsuario}/foto`)
+}
+
+export function urlFotoPerfil(ruta) {
+  if (!ruta) return null
+  return `${URL_SERVIDOR}${ruta}`
 }
 
 export async function obtenerCitas(idUsuario = null, rol = null) {
@@ -103,8 +130,46 @@ export async function obtenerNutriologos({ termino = '', pagina = 1, limite = 10
   return cliente.get('/nutriologos', { params: { termino, pagina, limite } })
 }
 
+export async function obtenerNutriologo(idNutriologo) {
+  return cliente.get(`/nutriologo/${idNutriologo}`)
+}
+
 export async function obtenerPacientes(idNutriologo) {
   return cliente.get('/pacientes', { params: { id_nutriologo: idNutriologo } })
+}
+
+export async function obtenerMensajes(idPaciente, idNutriologo, despuesDe = null) {
+  const params = { id_paciente: idPaciente, id_nutriologo: idNutriologo }
+  if (despuesDe) params.despues_de = despuesDe
+  return cliente.get('/mensajes', { params })
+}
+
+export async function enviarMensaje(datos) {
+  return cliente.post('/mensajes', datos)
+}
+
+export async function marcarMensajesLeidos(datos) {
+  return cliente.put('/mensajes/leidos', datos)
+}
+
+export async function obtenerMensajesNoLeidos(idUsuario) {
+  return cliente.get('/mensajes/no-leidos', { params: { id_usuario: idUsuario } })
+}
+
+export async function obtenerNotificaciones(idUsuario) {
+  return cliente.get('/notificaciones', { params: { id_usuario: idUsuario } })
+}
+
+export async function obtenerNotificacionesNoLeidas(idUsuario) {
+  return cliente.get('/notificaciones/no-leidas', { params: { id_usuario: idUsuario } })
+}
+
+export async function marcarNotificacionLeida(idNotificacion) {
+  return cliente.put(`/notificaciones/${idNotificacion}/leida`)
+}
+
+export async function marcarNotificacionesLeidas(idUsuario) {
+  return cliente.put('/notificaciones/leidas', { id_usuario: idUsuario })
 }
 
 export async function obtenerStatsAdmin() {
@@ -211,6 +276,10 @@ export async function enviarSolicitud(idPaciente, idNutriologo) {
 
 export async function obtenerSolicitudesPendientes(idNutriologo) {
   return clienteFast.get(`/solicitudes/pendientes/${idNutriologo}`)
+}
+
+export async function obtenerSolicitudesPendientesCount(idUsuario) {
+  return clienteFast.get('/solicitudes/pendientes-count', { params: { id_usuario: idUsuario } })
 }
 
 export async function aceptarSolicitud(idSolicitud) {

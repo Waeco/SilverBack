@@ -81,7 +81,8 @@ def ejecutar_script_sql(ruta_script):
                 cursor.execute(sql_limpio)
             except Error as e:
                 # Ignorar errores de clave duplicada en seed data (re-ejecución)
-                if e.errno == 1062:
+                # y de columna duplicada en migraciones ALTER TABLE (re-ejecución)
+                if e.errno in (1062, 1060):
                     continue
                 raise
         conexion.commit()

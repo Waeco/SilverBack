@@ -3,11 +3,17 @@ import { Navigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { obtenerCitas, crearCita, obtenerUsuario, obtenerPacientes } from '../servicios/ApiServicio'
-import { ChevronLeft, ChevronRight, Video, Users, Clock, Loader2, Plus, X, FileText, CalendarDays } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Video, Users, Clock, Loader2, Plus, X, FileText, CalendarDays, MapPin, ExternalLink } from 'lucide-react'
 import { alertaExito, alertaError } from '../servicios/AlertasServicio'
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const DIAS_SEMANA = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
+const urlMapaEmbed = (ubicacion) =>
+  `https://maps.google.com/maps?q=${encodeURIComponent(ubicacion)}&z=15&output=embed`
+
+const urlMapaExterno = (ubicacion) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ubicacion)}`
 
 const COLORES_ESTADO = {
   pendiente: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -28,12 +34,14 @@ export default function PaginaCitas() {
   const [anioActual, setAnioActual] = useState(new Date().getFullYear())
   const [diaSeleccionado, setDiaSeleccionado] = useState(null)
   const [mostrarFormulario, setMostrarFormulario] = useState(false)
+  const [videollamadaActiva, setVideollamadaActiva] = useState(null)
 
   const [pacientes, setPacientes] = useState([])
   const [idNutriologo, setIdNutriologo] = useState(null)
   const [formPaciente, setFormPaciente] = useState('')
   const [formHora, setFormHora] = useState('')
   const [formTipo, setFormTipo] = useState('presencial')
+  const [formUbicacion, setFormUbicacion] = useState('')
   const [formNotas, setFormNotas] = useState('')
   const [guardando, setGuardando] = useState(false)
 
@@ -109,6 +117,7 @@ export default function PaginaCitas() {
         fecha: fechaStr,
         hora: formHora,
         tipo: formTipo,
+        ubicacion: formUbicacion || null,
         notas: formNotas || null,
       })
       alertaExito('Cita creada', 'La cita se ha registrado correctamente.')
@@ -116,6 +125,7 @@ export default function PaginaCitas() {
       setFormPaciente('')
       setFormHora('')
       setFormTipo('presencial')
+      setFormUbicacion('')
       setFormNotas('')
       const respuesta = await obtenerCitas(usuario.id_usuario, usuario.rol)
       setCitas(respuesta.data.citas || [])
@@ -253,6 +263,11 @@ export default function PaginaCitas() {
                             {cita.nombre_nutriologo && (
                               <p className="text-xs text-texto-muted">{cita.nombre_nutriologo}</p>
                             )}
+                            {cita.ubicacion && (
+                              <p className="text-xs text-texto-muted mt-1 flex items-center gap-1">
+                                <MapPin className="w-3 h-3 flex-shrink-0" /> {cita.ubicacion}
+                              </p>
+                            )}
                             {cita.notas && (
                               <p className="text-xs text-texto-muted mt-1 flex items-center gap-1">
                                 <FileText className="w-3 h-3" /> {cita.notas}
@@ -261,6 +276,38 @@ export default function PaginaCitas() {
                           </div>
                         </div>
                       </div>
+                      {cita.tipo === 'videollamada' && cita.enlace_videollamada && cita.estado !== 'cancelada' && (
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setVideollamadaActiva(cita)}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 transition-colors"
+                          >
+                            <Video className="w-4 h-4" />
+                            Unirse a la videollamada
+                          </button>
+                        </div>
+                      )}
+                      {cita.ubicacion && (
+                        <div className="mt-3">
+                          <div className="rounded-lg overflow-hidden border border-gray-800/30">
+                            <iframe
+                              title={`Mapa cita ${cita.id_cita}`}
+                              src={urlMapaEmbed(cita.ubicacion)}
+                              className="w-full h-36 border-0"
+                              loading="lazy"
+                              referrerPolicy="no-referrer-when-downgrade"
+                            />
+                          </div>
+                          <a
+                            href={urlMapaExterno(cita.ubicacion)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1.5 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            Abrir en Google Maps <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -290,7 +337,7 @@ export default function PaginaCitas() {
                       ) : (
                         <Users className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
                       )}
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="text-xs font-medium text-texto-primary truncate">
                           {cita.nombre_paciente || cita.nombre_nutriologo}
                         </p>
@@ -298,6 +345,15 @@ export default function PaginaCitas() {
                           {cita.fecha?.split('T')[0] || cita.fecha} — {cita.hora?.slice(0, 5)}
                         </p>
                       </div>
+                      {cita.tipo === 'videollamada' && cita.enlace_videollamada && (
+                        <button
+                          onClick={() => setVideollamadaActiva(cita)}
+                          title="Unirse a la videollamada"
+                          className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex-shrink-0"
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -380,6 +436,40 @@ export default function PaginaCitas() {
                     </button>
                   </div>
                 </div>
+                {formTipo === 'presencial' ? (
+                  <div>
+                    <label className="text-xs text-texto-muted block mb-1">Ubicación</label>
+                    <div className="relative">
+                      <MapPin className="w-4 h-4 text-texto-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={formUbicacion}
+                        onChange={e => setFormUbicacion(e.target.value)}
+                        placeholder="Dirección del consultorio..."
+                        className="input w-full text-sm pl-9"
+                      />
+                    </div>
+                    {formUbicacion && (
+                      <div className="mt-2 rounded-lg overflow-hidden border border-gray-800/50">
+                        <iframe
+                          title="Vista previa de ubicación"
+                          src={urlMapaEmbed(formUbicacion)}
+                          className="w-full h-32 border-0"
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3 flex items-start gap-2">
+                    <Video className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-blue-300">
+                      Se generará automáticamente un enlace de videollamada al crear la cita.
+                      El paciente y tú podrán unirse desde la app, sin necesidad de instalar nada.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="text-xs text-texto-muted block mb-1">Notas</label>
                   <textarea
@@ -399,6 +489,56 @@ export default function PaginaCitas() {
                   {guardando ? 'Guardando...' : 'Crear Cita'}
                 </button>
               </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+
+      {/* Modal videollamada */}
+      {videollamadaActiva && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+            onClick={() => setVideollamadaActiva(null)}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="bg-card border border-gray-800/50 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between p-4 border-b border-gray-700/50">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-texto-primary flex items-center gap-2">
+                    <Video className="w-4 h-4 text-blue-400" />
+                    Videollamada
+                    {(videollamadaActiva.nombre_paciente || videollamadaActiva.nombre_nutriologo) && (
+                      <span className="text-texto-muted font-normal">
+                        · {videollamadaActiva.nombre_paciente || videollamadaActiva.nombre_nutriologo}
+                      </span>
+                    )}
+                  </h3>
+                  <a
+                    href={videollamadaActiva.enlace_videollamada}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-0.5"
+                  >
+                    Abrir en pestaña nueva <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <button onClick={() => setVideollamadaActiva(null)} className="p-1.5 rounded-lg hover:bg-base-claro transition-colors flex-shrink-0">
+                  <X className="w-5 h-5 text-texto-muted" />
+                </button>
+              </div>
+              <iframe
+                title="Videollamada"
+                src={videollamadaActiva.enlace_videollamada}
+                allow="camera; microphone; fullscreen; display-capture; autoplay"
+                className="w-full h-[70vh] border-0 bg-black"
+              />
             </div>
           </motion.div>
         </>

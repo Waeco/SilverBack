@@ -1,10 +1,14 @@
-import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import {
+  urlFotoPerfil, obtenerMensajesNoLeidos, obtenerSolicitudesPendientesCount,
+  obtenerNotificaciones, obtenerNotificacionesNoLeidas, marcarNotificacionLeida, marcarNotificacionesLeidas,
+} from '../servicios/ApiServicio'
+import {
   LayoutDashboard, Utensils, CalendarDays, User, Stethoscope,
-  Users, Shield, Menu, X, LogOut, Dumbbell, ClipboardEdit
+  Users, Shield, Menu, X, LogOut, Dumbbell, ClipboardEdit, MessageCircle, Bell, CheckCheck,
 } from 'lucide-react'
 
 function obtenerEnlaces(rol) {
@@ -17,6 +21,7 @@ function obtenerEnlaces(rol) {
       { a: '/dieta', etiqueta: 'Dieta', icono: Utensils },
       { a: '/rutina', etiqueta: 'Rutina', icono: Dumbbell },
       { a: '/citas', etiqueta: 'Citas', icono: CalendarDays },
+      { a: '/mensajes', etiqueta: 'Mensajes', icono: MessageCircle },
       { a: '/nutriologos', etiqueta: 'Nutriólogos', icono: Stethoscope },
       { a: '/historial', etiqueta: 'Historial Médico', icono: ClipboardEdit },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
@@ -27,6 +32,7 @@ function obtenerEnlaces(rol) {
       ...comunes,
       { a: '/citas', etiqueta: 'Citas', icono: CalendarDays },
       { a: '/pacientes', etiqueta: 'Pacientes', icono: Users },
+      { a: '/mensajes', etiqueta: 'Mensajes', icono: MessageCircle },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
     ]
   }
@@ -43,9 +49,100 @@ function obtenerEnlaces(rol) {
 export default function BarraNavegacion({ children }) {
   const { usuario, cerrarSesion } = useAutenticacion()
   const location = useLocation()
+  const navigate = useNavigate()
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [noLeidos, setNoLeidos] = useState(0)
+  const [solicitudesPendientes, setSolicitudesPendientes] = useState(0)
+  const [notificaciones, setNotificaciones] = useState([])
+  const [noLeidasNotif, setNoLeidasNotif] = useState(0)
+  const [panelNotifAbierto, setPanelNotifAbierto] = useState(false)
 
   const ENLACES = obtenerEnlaces(usuario?.rol)
+
+  useEffect(() => {
+    if (!usuario || (usuario.rol !== 'atleta' && usuario.rol !== 'nutriologo')) return
+    let activo = true
+    const cargar = async () => {
+      try {
+        const r = await obtenerMensajesNoLeidos(usuario.id_usuario)
+        if (activo) setNoLeidos(r.data.total || 0)
+      } catch {
+        // silencioso: no debe interrumpir la navegación
+      }
+    }
+    cargar()
+    const intervalo = setInterval(cargar, 15000)
+    return () => { activo = false; clearInterval(intervalo) }
+  }, [usuario])
+
+  useEffect(() => {
+    if (!usuario || usuario.rol !== 'nutriologo') return
+    let activo = true
+    const cargar = async () => {
+      try {
+        const r = await obtenerSolicitudesPendientesCount(usuario.id_usuario)
+        if (activo) setSolicitudesPendientes(r.data.total || 0)
+      } catch {
+        // silencioso: no debe interrumpir la navegación
+      }
+    }
+    cargar()
+    const intervalo = setInterval(cargar, 15000)
+    return () => { activo = false; clearInterval(intervalo) }
+  }, [usuario])
+
+  useEffect(() => {
+    if (!usuario) return
+    let activo = true
+    const cargar = async () => {
+      try {
+        const r = await obtenerNotificacionesNoLeidas(usuario.id_usuario)
+        if (activo) setNoLeidasNotif(r.data.total || 0)
+      } catch {
+        // silencioso: no debe interrumpir la navegación
+      }
+    }
+    cargar()
+    const intervalo = setInterval(cargar, 15000)
+    return () => { activo = false; clearInterval(intervalo) }
+  }, [usuario])
+
+  const abrirNotificaciones = async () => {
+    const abrir = !panelNotifAbierto
+    setPanelNotifAbierto(abrir)
+    if (abrir && usuario) {
+      try {
+        const r = await obtenerNotificaciones(usuario.id_usuario)
+        setNotificaciones(r.data.notificaciones || [])
+      } catch {
+        setNotificaciones([])
+      }
+    }
+  }
+
+  const clickNotificacion = async (notif) => {
+    setPanelNotifAbierto(false)
+    if (!notif.leido) {
+      try {
+        await marcarNotificacionLeida(notif.id_notificacion)
+        setNoLeidasNotif((n) => Math.max(0, n - 1))
+      } catch {
+        // silencioso
+      }
+    }
+    if (notif.enlace) navigate(notif.enlace)
+  }
+
+  const marcarTodasLeidas = async () => {
+    if (!usuario) return
+    try {
+      await marcarNotificacionesLeidas(usuario.id_usuario)
+      setNotificaciones((lista) => lista.map((n) => ({ ...n, leido: 1 })))
+      setNoLeidasNotif(0)
+    } catch {
+      // silencioso
+    }
+  }
 
   return (
     <div className="min-h-screen bg-base">
@@ -71,10 +168,83 @@ export default function BarraNavegacion({ children }) {
                 {usuario?.rol}
               </span>
               <span className="text-sm text-texto-secondary hidden md:block">{usuario?.nombre_completo}</span>
-              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                <span className="text-primary font-semibold text-sm">
-                  {usuario?.nombre_completo?.charAt(0)?.toUpperCase() || '?'}
-                </span>
+
+              <div className="relative">
+                <button
+                  onClick={abrirNotificaciones}
+                  className="relative p-2 rounded-lg hover:bg-base-claro transition-colors"
+                >
+                  <Bell className="w-5 h-5 text-texto-muted" />
+                  {noLeidasNotif > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 text-[10px] font-bold bg-primary text-white rounded-full w-4 h-4 flex items-center justify-center">
+                      {noLeidasNotif > 9 ? '9+' : noLeidasNotif}
+                    </span>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {panelNotifAbierto && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setPanelNotifAbierto(false)}
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-card border border-gray-800/50 rounded-xl shadow-2xl z-50 overflow-hidden"
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700/50">
+                          <h4 className="text-sm font-semibold text-texto-primary">Notificaciones</h4>
+                          {noLeidasNotif > 0 && (
+                            <button
+                              onClick={marcarTodasLeidas}
+                              className="flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              <CheckCheck className="w-3.5 h-3.5" /> Marcar leídas
+                            </button>
+                          )}
+                        </div>
+                        <div className="max-h-80 overflow-y-auto">
+                          {notificaciones.length === 0 ? (
+                            <p className="text-xs text-texto-muted/60 italic text-center py-8">
+                              No tienes notificaciones.
+                            </p>
+                          ) : (
+                            notificaciones.map((n) => (
+                              <button
+                                key={n.id_notificacion}
+                                onClick={() => clickNotificacion(n)}
+                                className={`w-full text-left px-4 py-3 border-b border-gray-800/30 last:border-0 hover:bg-base-claro/50 transition-colors ${
+                                  !n.leido ? 'bg-primary/5' : ''
+                                }`}
+                              >
+                                <div className="flex items-start gap-2">
+                                  {!n.leido && <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 flex-shrink-0" />}
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-medium text-texto-primary">{n.titulo}</p>
+                                    <p className="text-xs text-texto-muted mt-0.5">{n.mensaje}</p>
+                                  </div>
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden">
+                {usuario?.foto_perfil ? (
+                  <img src={urlFotoPerfil(usuario.foto_perfil)} alt="Foto de perfil" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-primary font-semibold text-sm">
+                    {usuario?.nombre_completo?.charAt(0)?.toUpperCase() || '?'}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -116,6 +286,16 @@ export default function BarraNavegacion({ children }) {
                       )}
                       <Icono className={`w-4 h-4 transition-transform duration-200 ${activo ? '' : 'group-hover:scale-110'}`} />
                       {enlace.etiqueta}
+                      {enlace.a === '/mensajes' && noLeidos > 0 && (
+                        <span className="ml-auto text-[10px] font-bold bg-primary text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
+                          {noLeidos > 9 ? '9+' : noLeidos}
+                        </span>
+                      )}
+                      {enlace.a === '/pacientes' && solicitudesPendientes > 0 && (
+                        <span className="ml-auto text-[10px] font-bold bg-secondary text-white rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
+                          {solicitudesPendientes > 9 ? '9+' : solicitudesPendientes}
+                        </span>
+                      )}
                     </Link>
                   )
                 })}

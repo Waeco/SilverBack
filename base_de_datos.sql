@@ -37,9 +37,26 @@ CREATE TABLE IF NOT EXISTS usuarios (
   activo           TINYINT(1)    NOT NULL DEFAULT 1,
   token_recuperacion       VARCHAR(64)  DEFAULT NULL,
   token_recuperacion_expira DATETIME    DEFAULT NULL,
+  intentos_fallidos INT          NOT NULL DEFAULT 0,
+  bloqueado_hasta   DATETIME     DEFAULT NULL,
+  correo_verificado TINYINT(1)   NOT NULL DEFAULT 1,
+  codigo_verificacion       VARCHAR(6)  DEFAULT NULL,
+  codigo_verificacion_expira DATETIME   DEFAULT NULL,
+  foto_perfil       VARCHAR(255) DEFAULT NULL,
   INDEX idx_correo (correo),
   INDEX idx_rol (rol)
 ) ENGINE=InnoDB;
+
+-- Migración para bases de datos ya existentes (creadas antes de estas columnas).
+-- correo_verificado nace en 1 para no bloquear cuentas ya existentes/semilla;
+-- solo los registros nuevos (vía /api/registro) se insertan con 0.
+-- (Si la columna ya existe -por ejemplo en una instalación nueva que ya la
+-- trae en el CREATE TABLE de arriba- el ejecutor del script ignora el error
+-- de "columna duplicada" y continúa con el resto del archivo sin problema.)
+ALTER TABLE usuarios ADD COLUMN correo_verificado TINYINT(1) NOT NULL DEFAULT 1;
+ALTER TABLE usuarios ADD COLUMN codigo_verificacion VARCHAR(6) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN codigo_verificacion_expira DATETIME DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN foto_perfil VARCHAR(255) DEFAULT NULL;
 
 -- ============================================================
 -- TABLA: nutriologos_perfil
@@ -104,6 +121,10 @@ CREATE TABLE IF NOT EXISTS comidas_diarias (
 -- ============================================================
 -- TABLA: citas
 -- ============================================================
+-- Nota: si ya tienes esta base de datos creada y no quieres perder datos,
+-- en vez de correr este script completo ejecuta solo:
+--   ALTER TABLE citas ADD COLUMN ubicacion VARCHAR(255) DEFAULT NULL AFTER estado;
+--   ALTER TABLE citas ADD COLUMN enlace_videollamada VARCHAR(255) DEFAULT NULL AFTER ubicacion;
 CREATE TABLE IF NOT EXISTS citas (
   id_cita       INT AUTO_INCREMENT PRIMARY KEY,
   id_paciente   INT NOT NULL,
@@ -112,6 +133,8 @@ CREATE TABLE IF NOT EXISTS citas (
   hora          TIME NOT NULL,
   tipo          ENUM('videollamada', 'presencial') NOT NULL DEFAULT 'presencial',
   estado        ENUM('pendiente', 'confirmada', 'completada', 'cancelada') NOT NULL DEFAULT 'pendiente',
+  ubicacion     VARCHAR(255) DEFAULT NULL,
+  enlace_videollamada VARCHAR(255) DEFAULT NULL,
   notas         TEXT DEFAULT NULL,
   actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
@@ -262,6 +285,45 @@ CREATE TABLE IF NOT EXISTS solicitudes_nutriologo (
   FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
   UNIQUE INDEX idx_solicitud_unica (id_paciente, id_nutriologo, estado),
   INDEX idx_solicitud_nutriologo (id_nutriologo, estado)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: mensajes
+-- Chat entre un paciente y su nutriólogo asignado
+-- ============================================================
+CREATE TABLE IF NOT EXISTS mensajes (
+  id_mensaje    INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente   INT NOT NULL,
+  id_nutriologo INT NOT NULL,
+  id_emisor     INT NOT NULL,
+  contenido     VARCHAR(2000) NOT NULL,
+  leido         TINYINT(1) NOT NULL DEFAULT 0,
+  enviado_en    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
+  FOREIGN KEY (id_emisor) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  INDEX idx_mensajes_conversacion (id_paciente, id_nutriologo, enviado_en),
+  INDEX idx_mensajes_no_leidos (id_paciente, id_nutriologo, leido)
+) ENGINE=InnoDB;
+
+-- ============================================================
+-- TABLA: notificaciones
+-- Notificaciones en la app (ej. cita creada, cita cancelada, etc.)
+-- Nota: si ya tienes la base de datos creada, corre solo el CREATE TABLE
+-- de abajo (no borra nada, usa IF NOT EXISTS).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS notificaciones (
+  id_notificacion INT AUTO_INCREMENT PRIMARY KEY,
+  id_usuario    INT NOT NULL,
+  tipo          VARCHAR(50) NOT NULL,
+  titulo        VARCHAR(150) NOT NULL,
+  mensaje       VARCHAR(255) NOT NULL,
+  enlace        VARCHAR(255) DEFAULT NULL,
+  leido         TINYINT(1) NOT NULL DEFAULT 0,
+  creado_en     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  INDEX idx_notif_usuario (id_usuario, creado_en),
+  INDEX idx_notif_no_leidas (id_usuario, leido)
 ) ENGINE=InnoDB;
 
 -- ============================================================

@@ -13,8 +13,10 @@ import PaginaPacientes from './paginas/PaginaPacientes'
 import PaginaAdminUsuarios from './paginas/PaginaAdminUsuarios'
 import PaginaRutina from './paginas/PaginaRutina'
 import PaginaHistorialMedico from './paginas/PaginaHistorialMedico'
+import PaginaMensajes from './paginas/PaginaMensajes'
 import PaginaRecuperarPassword from './paginas/PaginaRecuperarPassword'
 import PaginaRestablecerPassword from './paginas/PaginaRestablecerPassword'
+import PaginaVerificarCorreo from './paginas/PaginaVerificarCorreo'
 
 function RutaProtegida({ children }) {
   const { estaAutenticado } = useAutenticacion()
@@ -38,11 +40,14 @@ export default function App() {
         <Route path="/admin/usuarios" element={<RutaProtegida><PaginaAdminUsuarios /></RutaProtegida>} />
         <Route path="/historial" element={<RutaProtegida><PaginaHistorialMedico /></RutaProtegida>} />
         <Route path="/historial/:idPaciente" element={<RutaProtegida><PaginaHistorialMedico /></RutaProtegida>} />
+        <Route path="/mensajes" element={<RutaProtegida><PaginaMensajes /></RutaProtegida>} />
+        <Route path="/mensajes/:idPaciente" element={<RutaProtegida><PaginaMensajes /></RutaProtegida>} />
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<PaginaLogin />} />
         <Route path="/registro" element={<PaginaRegistro />} />
         <Route path="/recuperar-password" element={<PaginaRecuperarPassword />} />
         <Route path="/restablecer" element={<PaginaRestablecerPassword />} />
+        <Route path="/verificar-correo" element={<PaginaVerificarCorreo />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ProveedorAutenticacion>
