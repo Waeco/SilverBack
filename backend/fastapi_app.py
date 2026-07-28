@@ -37,6 +37,9 @@ class EjercicioAsignado(BaseModel):
     imagen_url: Optional[str] = None
     video_url: Optional[str] = None
     orden: int = 0
+    dia_semana: Optional[str] = "Todos los días"
+    equipo: Optional[str] = None
+    progresion_peso: Optional[str] = None
 
 class CrearRutinaSchema(BaseModel):
     id_paciente: int
@@ -65,7 +68,7 @@ async def buscar_ejercicios(q: str = Query(min_length=3)):
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT id, wger_id, nombre, descripcion, imagen_url, video_url "
-            "FROM ejercicios WHERE nombre LIKE %s ORDER BY nombre LIMIT 20",
+            "FROM ejercicios WHERE nombre LIKE %s ORDER BY nombre LIMIT 30",
             (f"%{q}%",)
         )
         resultados = cursor.fetchall()
@@ -131,11 +134,13 @@ async def crear_rutina(datos: CrearRutinaSchema):
         for ej in datos.ejercicios:
             cursor.execute(
                 "INSERT INTO detalles_rutina (id_plan_rutina, id_ejercicio, nombre_ejercicio, "
-                "descripcion, series, repeticiones, descanso, imagen_url, video_url, orden) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "descripcion, series, repeticiones, descanso, imagen_url, video_url, orden, "
+                "dia_semana, equipo, progresion_peso) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (id_plan, ej.ejercicio_id, ej.nombre_ejercicio, ej.descripcion,
                  ej.series, ej.repeticiones, ej.descanso,
-                 ej.imagen_url, ej.video_url, ej.orden)
+                 ej.imagen_url, ej.video_url, ej.orden,
+                 ej.dia_semana, ej.equipo, ej.progresion_peso)
             )
 
         conn.commit()

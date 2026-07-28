@@ -21,7 +21,11 @@ cliente.interceptors.request.use((config) => {
 cliente.interceptors.response.use(
   (respuesta) => respuesta,
   (error) => {
-    if (error.response?.status === 401) {
+    const esPeticionDeLogin = error.config?.url?.includes('/auth')
+    // Un 401 al intentar iniciar sesión es un error esperado (credenciales
+    // incorrectas) y debe mostrarse en el propio formulario, no provocar una
+    // redirección que recargue la página y borre el mensaje de error.
+    if (error.response?.status === 401 && !esPeticionDeLogin) {
       localStorage.removeItem('silverback_usuario')
       localStorage.removeItem('silverback_token')
       window.location.href = '/login'

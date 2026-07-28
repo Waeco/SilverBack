@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CLAVE_API = os.environ.get('WGER_API_KEY', '')
 URL_BASE = 'https://wger.de/api/v2'
-IDIOMA = 4  # 4 = Spanish (wger language ID)
+IDIOMA = 19  # 19 = Spanish (wger language ID). 2 = English (usado como respaldo).
 
 
 def _headers():
@@ -64,28 +64,36 @@ def _enriquecer_ejercicio(traduccion):
     }
 
 
+def _buscar_traducciones(termino_lower, idioma, max_resultados):
+    headers = _headers()
+    traducciones = []
+    url = f'{URL_BASE}/exercise-translation/?language={idioma}&limit=100'
+    paginas = 0
+    while url and paginas < 5 and len(traducciones) < max_resultados:
+        respuesta = requests.get(url, headers=headers, timeout=15)
+        respuesta.raise_for_status()
+        datos = respuesta.json()
+        paginas += 1
+        for t in datos.get('results', []):
+            if termino_lower in t.get('name', '').lower():
+                traducciones.append(t)
+                if len(traducciones) >= max_resultados:
+                    break
+        url = datos.get('next')
+    return traducciones
+
+
 def buscar_ejercicios(termino, max_resultados=10):
     """Busca ejercicios en Wger paginando y filtrando localmente.
+    Prueba primero en español; si no hay coincidencias (no todos los
+    ejercicios tienen traducción al español), respalda buscando en inglés.
     Obtiene imagen y video en paralelo para los resultados."""
     try:
-        headers = _headers()
         termino_lower = termino.lower()
 
-        # Recolectar traducciones que coincidan paginando (máx 5 páginas = 500 ejercicios)
-        traducciones = []
-        url = f'{URL_BASE}/exercise-translation/?language={IDIOMA}&limit=100'
-        paginas = 0
-        while url and paginas < 5 and len(traducciones) < max_resultados:
-            respuesta = requests.get(url, headers=headers, timeout=15)
-            respuesta.raise_for_status()
-            datos = respuesta.json()
-            paginas += 1
-            for t in datos.get('results', []):
-                if termino_lower in t.get('name', '').lower():
-                    traducciones.append(t)
-                    if len(traducciones) >= max_resultados:
-                        break
-            url = datos.get('next')
+        traducciones = _buscar_traducciones(termino_lower, IDIOMA, max_resultados)
+        if not traducciones and IDIOMA != 2:
+            traducciones = _buscar_traducciones(termino_lower, 2, max_resultados)
 
         # Obtener imagen y video en paralelo para todos los resultados
         coincide = []
@@ -98,7 +106,7 @@ def buscar_ejercicios(termino, max_resultados=10):
         orden = {t.get('exercise'): i for i, t in enumerate(traducciones)}
         coincide.sort(key=lambda x: orden.get(int(x['id']), 999))
 
-        print(f'[Wger] Búsqueda "{termino}": {len(coincide)} resultados ({paginas} páginas)')
+        print(f'[Wger] Búsqueda "{termino}": {len(coincide)} resultados')
         return {'results': coincide}
     except Exception as e:
         print(f'[Wger] Error en búsqueda: {e}')
@@ -111,7 +119,7 @@ def obtener_info_ejercicio(id_ejercicio):
         headers = _headers()
         traduccion = None
 
-        for lang in [IDIOMA, 1]:
+        for lang in [IDIOMA, 2]:
             respuesta = requests.get(
                 f'{URL_BASE}/exercise-translation/',
                 params={'language': lang, 'exercise': id_ejercicio, 'limit': 1},

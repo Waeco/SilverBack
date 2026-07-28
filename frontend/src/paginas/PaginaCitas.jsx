@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Navigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
@@ -35,6 +35,7 @@ export default function PaginaCitas() {
   const [diaSeleccionado, setDiaSeleccionado] = useState(null)
   const [mostrarFormulario, setMostrarFormulario] = useState(false)
   const [videollamadaActiva, setVideollamadaActiva] = useState(null)
+  const contenedorJitsiRef = useRef(null)
 
   const [pacientes, setPacientes] = useState([])
   const [idNutriologo, setIdNutriologo] = useState(null)
@@ -73,6 +74,45 @@ export default function PaginaCitas() {
     }
     cargar()
   }, [usuario, esNutriologo])
+
+  // Monta la videollamada usando el script oficial de Jitsi (external_api.js)
+  // en vez de un <iframe> plano: así el navegador sí concede permisos de
+  // cámara/micrófono correctamente dentro del widget embebido.
+  useEffect(() => {
+    if (!videollamadaActiva) return
+    let apiJitsi = null
+    let cancelado = false
+
+    const montar = () => {
+      if (cancelado || !contenedorJitsiRef.current || !window.JitsiMeetExternalApi) return
+      contenedorJitsiRef.current.innerHTML = ''
+      const nombreSala = videollamadaActiva.enlace_videollamada.split('/').pop()
+      apiJitsi = new window.JitsiMeetExternalApi('meet.jit.si', {
+        roomName: nombreSala,
+        parentNode: contenedorJitsiRef.current,
+        width: '100%',
+        height: '100%',
+        userInfo: { displayName: usuario?.nombre_completo || '' },
+        configOverwrite: { prejoinPageEnabled: true, disableDeepLinking: true },
+        interfaceConfigOverwrite: { MOBILE_APP_PROMO: false },
+      })
+    }
+
+    if (window.JitsiMeetExternalApi) {
+      montar()
+    } else {
+      const script = document.createElement('script')
+      script.src = 'https://meet.jit.si/external_api.js'
+      script.async = true
+      script.onload = montar
+      document.body.appendChild(script)
+    }
+
+    return () => {
+      cancelado = true
+      if (apiJitsi) apiJitsi.dispose()
+    }
+  }, [videollamadaActiva, usuario])
 
   const cambiarMes = (delta) => {
     let m = mesActual + delta
@@ -533,12 +573,12 @@ export default function PaginaCitas() {
                   <X className="w-5 h-5 text-texto-muted" />
                 </button>
               </div>
-              <iframe
-                title="Videollamada"
-                src={videollamadaActiva.enlace_videollamada}
-                allow="camera; microphone; fullscreen; display-capture; autoplay"
-                className="w-full h-[70vh] border-0 bg-black"
-              />
+              <div
+                ref={contenedorJitsiRef}
+                className="w-full h-[70vh] bg-black flex items-center justify-center"
+              >
+                <Loader2 className="w-6 h-6 text-texto-muted animate-spin" />
+              </div>
             </div>
           </motion.div>
         </>

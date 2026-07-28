@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Dumbbell, Plus, Trash2, Search, X, Save, Target, Clock, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+import { Loader2, Dumbbell, Plus, Trash2, Search, X, Save, Target, Clock, ChevronDown, ChevronUp, AlertTriangle, Calendar, TrendingUp } from 'lucide-react'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast, buscarEjerciciosFast, obtenerUsuario } from '../servicios/ApiServicio'
 import { alertaExito, alertaError } from '../servicios/AlertasServicio'
@@ -176,6 +176,14 @@ export default function PaginaRutina() {
     setEjercicioExpandido(ejercicioExpandido === idx ? null : idx)
   }
 
+  const ORDEN_DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo', 'Todos los días']
+  const detallesConIndice = detalles.map((item, idx) => ({ ...item, idxGlobal: idx }))
+  const diasPresentes = [...new Set(detallesConIndice.map(i => i.dia_semana || 'Todos los días'))]
+  const mostrarGrupos = diasPresentes.length > 1
+  const gruposPorDia = ORDEN_DIAS
+    .filter(dia => diasPresentes.includes(dia))
+    .map(dia => ({ dia, items: detallesConIndice.filter(i => (i.dia_semana || 'Todos los días') === dia) }))
+
   if (cargando) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -240,83 +248,118 @@ export default function PaginaRutina() {
           )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {detalles.map((item, idx) => (
-            <motion.div
-              key={item.id_detalle_rutina || idx}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              className="rounded-xl bg-base-claro/30 border border-gray-800/30 overflow-hidden"
-            >
-              <div className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center flex-shrink-0">
-                    {idx + 1}
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-texto-primary">{item.nombre_ejercicio}</p>
-                    <button
-                      onClick={() => expandirEjercicio(idx, item)}
-                      className="text-xs text-primary hover:text-primary-claro flex items-center gap-1 mt-0.5"
-                    >
-                      {ejercicioExpandido === idx ? (
-                        <ChevronUp className="w-3 h-3" />
-                      ) : (
-                        <ChevronDown className="w-3 h-3" />
-                      )}
-                      {ejercicioExpandido === idx ? 'Ocultar' : 'Ver detalles'}
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-xs text-texto-muted">
-                  <div className="flex items-center gap-1">
-                    <Target className="w-3.5 h-3.5" />
-                    <span>{item.series} × {item.repeticiones}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{item.descanso}</span>
-                  </div>
-                </div>
-              </div>
-
-              <AnimatePresence>
-                {ejercicioExpandido === idx && (
+        <div className="space-y-5">
+          {gruposPorDia.map(({ dia, items }) => (
+            <div key={dia}>
+              {mostrarGrupos && (
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-texto-muted mb-2 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5" />
+                  {dia}
+                </h3>
+              )}
+              <div className="space-y-3">
+                {items.map((item) => {
+                  const idx = item.idxGlobal
+                  return (
                   <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="px-4 pb-4"
+                    key={item.id_detalle_rutina || idx}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="rounded-xl bg-base-claro/30 border border-gray-800/30 overflow-hidden"
                   >
-                    <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion || 'Sin descripción disponible.'}</p>
-                    {item.imagen_url && (
-                      <div className="mt-3 rounded-xl overflow-hidden border border-gray-800/30">
-                        <img
-                          src={item.imagen_url}
-                          alt={item.nombre_ejercicio}
-                          className="w-full h-auto max-h-80 object-contain bg-gray-900"
-                          loading="lazy"
-                        />
+                    <div className="flex items-center justify-between p-4 gap-2 flex-wrap">
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center flex-shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-texto-primary">{item.nombre_ejercicio}</p>
+                          <button
+                            onClick={() => expandirEjercicio(idx, item)}
+                            className="text-xs text-primary hover:text-primary-claro flex items-center gap-1 mt-0.5"
+                          >
+                            {ejercicioExpandido === idx ? (
+                              <ChevronUp className="w-3 h-3" />
+                            ) : (
+                              <ChevronDown className="w-3 h-3" />
+                            )}
+                            {ejercicioExpandido === idx ? 'Ocultar' : 'Ver detalles'}
+                          </button>
+                        </div>
                       </div>
-                    )}
-                    {item.video_url && (
-                      <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
-                        <iframe
-                          src={item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be')
-                            ? item.video_url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/').split('&')[0]
-                            : item.video_url}
-                          className="w-full h-full"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          title={`Video de ${item.nombre_ejercicio}`}
-                        />
+                      <div className="flex items-center gap-4 text-xs text-texto-muted">
+                        <div className="flex items-center gap-1">
+                          <Target className="w-3.5 h-3.5" />
+                          <span>{item.series} × {item.repeticiones}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>{item.descanso}</span>
+                        </div>
+                        {item.equipo && item.equipo !== 'Sin especificar' && (
+                          <div className="flex items-center gap-1">
+                            <Dumbbell className="w-3.5 h-3.5" />
+                            <span>{item.equipo}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+
+                    <AnimatePresence>
+                      {ejercicioExpandido === idx && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="px-4 pb-4"
+                        >
+                          <p className="text-xs text-texto-secondary leading-relaxed">{item.descripcion || 'Sin descripción disponible.'}</p>
+                          {item.progresion_peso && (
+                            <div className="mt-2 flex items-start gap-1.5 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-2.5 py-1.5">
+                              <TrendingUp className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                              <span>{item.progresion_peso}</span>
+                            </div>
+                          )}
+                          {item.imagen_url && (
+                            <div className="mt-3 rounded-xl overflow-hidden border border-gray-800/30">
+                              <img
+                                src={item.imagen_url}
+                                alt={item.nombre_ejercicio}
+                                className="w-full h-auto max-h-80 object-contain bg-gray-900"
+                                loading="lazy"
+                              />
+                            </div>
+                          )}
+                          {item.video_url && (
+                            <div className="mt-3 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
+                              {item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be') ? (
+                                <iframe
+                                  src={item.video_url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/').split('&')[0]}
+                                  className="w-full h-full"
+                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                  allowFullScreen
+                                  title={`Video de ${item.nombre_ejercicio}`}
+                                />
+                              ) : (
+                                <video
+                                  src={item.video_url}
+                                  className="w-full h-full"
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                />
+                              )}
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
+                  )
+                })}
+              </div>
+            </div>
           ))}
         </div>
       )}

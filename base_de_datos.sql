@@ -15,6 +15,8 @@ DROP TABLE IF EXISTS detalles_dieta;
 DROP TABLE IF EXISTS planes_dieta;
 DROP TABLE IF EXISTS comidas_diarias;
 DROP TABLE IF EXISTS citas;
+DROP TABLE IF EXISTS mensajes;
+DROP TABLE IF EXISTS notificaciones;
 DROP TABLE IF EXISTS solicitudes_nutriologo;
 DROP TABLE IF EXISTS historial_medico;
 DROP TABLE IF EXISTS registro_habitos;
@@ -227,6 +229,9 @@ CREATE TABLE IF NOT EXISTS detalles_rutina (
   imagen_url          VARCHAR(500) DEFAULT NULL,
   video_url           VARCHAR(500) DEFAULT NULL,
   orden               INT          NOT NULL DEFAULT 0,
+  dia_semana          VARCHAR(20)  DEFAULT 'Todos los días',
+  equipo              VARCHAR(50)  DEFAULT NULL,
+  progresion_peso     VARCHAR(255) DEFAULT NULL,
   FOREIGN KEY (id_plan_rutina) REFERENCES planes_rutina(id_plan_rutina) ON DELETE CASCADE,
   INDEX idx_detalle_rutina_plan (id_plan_rutina),
   CONSTRAINT chk_series CHECK (series > 0),
