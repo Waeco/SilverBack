@@ -3,18 +3,22 @@ import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
 import { registrarUsuario } from '../servicios/ApiServicio'
-import { Loader2, User, Stethoscope, ArrowLeft } from 'lucide-react'
-import ValidadorPassword, { passwordEsValida } from '../componentes/ValidadorPassword'
+import CaptchaVerificacion from '../componentes/CaptchaVerificacion'
+import ValidadorPassword from '../componentes/ValidadorPassword'
+import { Loader2, User, Stethoscope, ArrowLeft, ShieldCheck, Eye, EyeOff } from 'lucide-react'
 
 export default function PaginaRegistro() {
   const { estaAutenticado } = useAutenticacion()
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (estaAutenticado) navigate('/dashboard', { replace: true })  }, [estaAutenticado, navigate])
-
+    if (estaAutenticado) navigate('/dashboard', { replace: true })
+  }, [estaAutenticado, navigate])
   const [rol, setRol] = useState('atleta')
-  const [nombre, setNombre] = useState('')
+  const [nombres, setNombres] = useState('')
+  const [apellidoPaterno, setApellidoPaterno] = useState('')
+  const [apellidoMaterno, setApellidoMaterno] = useState('')
+  const [fechaNacimiento, setFechaNacimiento] = useState('')
   const [correo, setCorreo] = useState('')
   const [contrasena, setContrasena] = useState('')
   const [confirmar, setConfirmar] = useState('')
@@ -22,7 +26,12 @@ export default function PaginaRegistro() {
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState(null)
   const [mostrarValidador, setMostrarValidador] = useState(false)
+  const [verContrasena, setVerContrasena] = useState(false)
+  const [verConfirmar, setVerConfirmar] = useState(false)
   const validadorRef = useRef(null)
+
+  // Paso 1: formulario de registro. Paso 2: verificación con captcha.
+  const [paso, setPaso] = useState(1)
 
   useEffect(() => {
     function handleClick(e) {
@@ -34,148 +43,266 @@ export default function PaginaRegistro() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const manejarEnvio = async (e) => {
+  const contrasenaCumpleRequisitos = (v) =>
+    v.length >= 6 && /[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v)
+
+  const construirDatosRegistro = () => {
+    const datos = {
+      nombres,
+      apellido_paterno: apellidoPaterno,
+      apellido_materno: apellidoMaterno,
+      fecha_nacimiento: fechaNacimiento,
+      correo,
+      contrasena,
+      rol,
+    }
+    if (rol === 'nutriologo') {
+      datos.cedula = cedula
+    }
+    return datos
+  }
+
+  const calcularEdad = (fecha) => {
+    if (!fecha) return null
+    const [a, m, d] = fecha.split('-').map(Number)
+    const hoy = new Date()
+    let edad = hoy.getFullYear() - a
+    if (hoy.getMonth() + 1 < m || (hoy.getMonth() + 1 === m && hoy.getDate() < d)) {
+      edad -= 1
+    }
+    return edad
+  }
+
+  const manejarEnvioFormulario = async (e) => {
     e.preventDefault()
     setError(null)
 
-    if (!nombre.trim() || !correo.trim() || !contrasena.trim()) {
+    if (!nombres.trim() || !apellidoPaterno.trim() || !correo.trim() || !contrasena.trim() || !fechaNacimiento) {
       setError('Todos los campos son requeridos')
       return
     }
-    if (!passwordEsValida(contrasena, confirmar)) {
-      setError('La contraseña no cumple con todos los requisitos')
+    const edad = calcularEdad(fechaNacimiento)
+    if (edad === null || edad < 18) {
+      setError('Debes ser mayor de 18 años para registrarte')
       return
     }
-    
-    // 🤖 VALIDACIÓN VISUAL ANTES DE MANDAR AL BACKEND
-    if (!captchaToken) {
-      setError('Por favor, completa el Captcha para demostrar que no eres un robot.')
+    if (contrasena !== confirmar) {
+      setError('Las contraseñas no coinciden')
+      return
+    }
+    if (!contrasenaCumpleRequisitos(contrasena)) {
+      setError('La contraseña no cumple todos los requisitos')
       return
     }
 
     setCargando(true)
-
     try {
-      // Mandamos todos los campos incluyendo el token del captcha
-      await registrarUsuario({
-        rol,
-        nombre_completo: nombre,
-        correo,
-        contrasena,
-        cedula_profesional: rol === 'nutriologo' ? cedula : null,
-        captcha_token: captchaToken // <--- NUEVO CAMPO ENVIADO AL BACKEND
-      })
-      
-      navigate('/login', { replace: true })
-    } catch (err) {
-      setError(err.message || 'Error al registrar usuario')
-      
-      // 🤖 SI EL REGISTRO FALLA, REINICIAMOS EL CAPTCHA POR SEGURIDAD
-      if (captchaRef.current) {
-        captchaRef.current.reset()
+      const respuesta = await registrarUsuario(construirDatosRegistro())
+      if (respuesta.data.requiere_captcha) {
+        setPaso(2)
       }
-      setCaptchaToken(null)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al registrar')
     } finally {
       setCargando(false)
     }
   }
 
+  const manejarCaptchaVerificado = async (captchaToken) => {
+    setCargando(true)
+    setError(null)
+    try {
+      await registrarUsuario(construirDatosRegistro(), captchaToken)
+      navigate(`/verificar-correo?correo=${encodeURIComponent(correo)}`)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al registrar')
+    } finally {
+      setCargando(false)
+    }
+  }
+
+  const volverAlPaso1 = () => {
+    setPaso(1)
+    setError(null)
+  }
+
   return (
     <div className="min-h-screen bg-base flex items-center justify-center p-4">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
         className="w-full max-w-md"
       >
         <div className="tarjeta">
+          <Link to="/login" className="inline-flex items-center gap-1.5 text-sm text-texto-muted hover:text-texto-secondary mb-6">
+            <ArrowLeft className="w-4 h-4" />
+            Volver
+          </Link>
+
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/login" className="p-1.5 rounded-lg hover:bg-base-claro text-texto-muted hover:text-texto-primary transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+              <span className="text-white font-bold text-lg">SB</span>
+            </div>
             <div>
-              <h1 className="text-xl font-bold text-texto-primary">Crear Cuenta</h1>
-              <p className="text-sm text-texto-muted">Únete a SilverBack</p>
+              <h1 className="text-xl font-bold text-texto-primary">SilverBack</h1>
+              <p className="text-sm text-texto-muted">{paso === 1 ? 'Crear cuenta' : 'Verificación en dos pasos'}</p>
             </div>
           </div>
 
           {error && (
-            <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-error text-sm mb-4">
-              {error}
-            </div>
+            <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-error text-sm mb-4">{error}</div>
           )}
 
-          <div className="flex p-1 bg-base-claro rounded-lg mb-6">
-            <button
-              type="button"
-              onClick={() => { setRol('atleta'); setError(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all
-                ${rol === 'atleta' ? 'bg-card text-primary shadow-sm' : 'text-texto-muted hover:text-texto-secondary'}`}
-            >
-              <User className="w-4 h-4" />
-              Atleta
-            </button>
-            <button
-              type="button"
-              onClick={() => { setRol('nutriologo'); setError(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all
-                ${rol === 'nutriologo' ? 'bg-card text-primary shadow-sm' : 'text-texto-muted hover:text-texto-secondary'}`}
-            >
-              <Stethoscope className="w-4 h-4" />
-              Nutriólogo
-            </button>
-          </div>
-
-          <form onSubmit={manejarEnvio} className="space-y-4">
-            <div>
-              <label htmlFor="reg-nombre" className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre completo</label>
-              <input id="reg-nombre" name="nombre_completo" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} className="input" placeholder="Tu nombre" />
-            </div>
-            <div>
-              <label htmlFor="reg-correo" className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
-              <input id="reg-correo" name="correo" type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input" placeholder="correo@ejemplo.com" />
-            </div>
-            {rol === 'nutriologo' && (
-              <div>
-                <label htmlFor="reg-cedula" className="block text-sm font-medium text-texto-secondary mb-1.5">Cédula profesional</label>
-                <input id="reg-cedula" name="cedula_profesional" type="text" value={cedula} onChange={(e) => setCedula(e.target.value)} className="input" placeholder="12345678" />
+          {paso === 1 && (
+            <>
+              <div className="flex gap-2 mb-6 p-1 rounded-lg bg-base-claro">
+                <button
+                  onClick={() => setRol('atleta')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${
+                    rol === 'atleta' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-texto-muted hover:text-texto-primary'
+                  }`}
+                >
+                  <User className="w-4 h-4" />
+                  Atleta
+                </button>
+                <button
+                  onClick={() => setRol('nutriologo')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${
+                    rol === 'nutriologo' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-texto-muted hover:text-texto-primary'
+                  }`}
+                >
+                  <Stethoscope className="w-4 h-4" />
+                  Nutriólogo
+                </button>
               </div>
-            )}
-            <div ref={validadorRef}>
-              <label htmlFor="reg-pass" className="block text-sm font-medium text-texto-secondary mb-1.5">Contraseña</label>
-              <input id="reg-pass" name="contrasena" type="password" value={contrasena} onChange={(e) => setContrasena(e.target.value)} onFocus={() => setMostrarValidador(true)} className="input" placeholder="Mínimo 6 caracteres" />
-              <ValidadorPassword
-                valor={contrasena}
-                confirmar={confirmar}
-                visible={mostrarValidador}
-                onCerrar={() => setMostrarValidador(false)}
+
+              <form onSubmit={manejarEnvioFormulario} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre(s)</label>
+                  <input type="text" value={nombres} onChange={(e) => setNombres(e.target.value)} className="input" placeholder="Tu(s) nombre(s)" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-texto-secondary mb-1.5">Apellido paterno</label>
+                    <input type="text" value={apellidoPaterno} onChange={(e) => setApellidoPaterno(e.target.value)} className="input" placeholder="Primer apellido" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-texto-secondary mb-1.5">Apellido materno</label>
+                    <input type="text" value={apellidoMaterno} onChange={(e) => setApellidoMaterno(e.target.value)} className="input" placeholder="Segundo apellido" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Fecha de nacimiento</label>
+                  <input
+                    type="date"
+                    value={fechaNacimiento}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setFechaNacimiento(e.target.value)}
+                    className="input"
+                  />
+                  <p className="text-xs text-texto-muted mt-1">Debes ser mayor de 18 años. Esta fecha no se puede modificar después del registro.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
+                  <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input" placeholder="correo@ejemplo.com" />
+                </div>
+                {rol === 'nutriologo' && (
+                  <div>
+                    <label className="block text-sm font-medium text-texto-secondary mb-1.5">Cédula profesional</label>
+                    <input type="text" value={cedula} onChange={(e) => setCedula(e.target.value)} className="input" placeholder="12345678" />
+                  </div>
+                )}
+                <div ref={validadorRef} className="relative">
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Contraseña</label>
+                  <div className="relative">
+                    <input
+                      type={verContrasena ? 'text' : 'password'}
+                      value={contrasena}
+                      onChange={(e) => setContrasena(e.target.value)}
+                      onFocus={() => setMostrarValidador(true)}
+                      className="input pr-10"
+                      placeholder="Mínimo 6 caracteres"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setVerContrasena((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-texto-muted hover:text-texto-primary"
+                      tabIndex={-1}
+                      aria-label={verContrasena ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    >
+                      {verContrasena ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <ValidadorPassword
+                    valor={contrasena}
+                    confirmar={confirmar}
+                    visible={mostrarValidador}
+                    onCerrar={() => setMostrarValidador(false)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
+                  <div className="relative">
+                    <input
+                      type={verConfirmar ? 'text' : 'password'}
+                      value={confirmar}
+                      onChange={(e) => setConfirmar(e.target.value)}
+                      className="input pr-10"
+                      placeholder="Repite la contraseña"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setVerConfirmar((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-texto-muted hover:text-texto-primary"
+                      tabIndex={-1}
+                      aria-label={verConfirmar ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    >
+                      {verConfirmar ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <button type="submit" disabled={cargando} className="btn-primary w-full flex items-center justify-center gap-2">
+                  {cargando && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {cargando ? 'Registrando...' : 'Crear Cuenta'}
+                </button>
+              </form>
+
+              <p className="text-center text-sm text-texto-muted mt-4">
+                ¿Ya tienes cuenta?{' '}
+                <Link to="/login" className="text-primary hover:text-primary-claro">Inicia sesión</Link>
+              </p>
+            </>
+          )}
+
+          {paso === 2 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-exito/10 border border-exito/20 text-sm text-texto-secondary">
+                <ShieldCheck className="w-4 h-4 text-exito shrink-0" />
+                Confirma que no eres un robot para completar tu registro.
+              </div>
+
+              <CaptchaVerificacion
+                onVerificado={manejarCaptchaVerificado}
+                onExpirado={() => setError('El captcha expiró, resuélvelo de nuevo.')}
               />
-            </div>
-            <div>
-              <label htmlFor="reg-confirm" className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
-              <input id="reg-confirm" name="confirmar_contrasena" type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} className="input" placeholder="Repite la contraseña" />
-            </div>
 
-            {/* 🤖 CASILLA DE RECAPTCHA EN TEMA OSCURO */}
-            <div className="flex justify-center py-2">
-              <ReCAPTCHA
-                ref={captchaRef}
-                sitekey="6Lf35TEtAAAAAEQ1JX_Ez4hgdPrw58_OszpXPV_5" // <--- CAMBIA ESTO por tu clave pública de Google Admin
-                onChange={manejarCambioCaptcha}
-                theme="dark"
-              />
+              {cargando && (
+                <div className="flex items-center justify-center gap-2 text-sm text-texto-muted">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Creando cuenta...
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={volverAlPaso1}
+                disabled={cargando}
+                className="text-sm text-texto-muted hover:text-primary transition-colors w-full text-center"
+              >
+                ← Volver
+              </button>
             </div>
-
-            <button type="submit" disabled={cargando} className="btn-primary w-full flex items-center justify-center gap-2">
-              {cargando && <Loader2 className="w-4 h-4 animate-spin" />}
-              {cargando ? 'Registrando...' : 'Crear Cuenta'}
-            </button>
-          </form>
-
-          <p className="text-center text-sm text-texto-muted mt-4">
-            ¿Ya tienes cuenta?{' '}
-            <Link to="/login" className="text-primary hover:text-primary-claro">Inicia sesión</Link>
-          </p>
+          )}
         </div>
       </motion.div>
     </div>

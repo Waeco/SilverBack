@@ -98,6 +98,11 @@
   .texto-mono {
     @apply font-mono tracking-tight;
   }
+
+  .texto-juvenil {
+    font-family: 'Poppins', sans-serif;
+    letter-spacing: normal;
+  }
 }
 
 .swal-popup-personalizado {

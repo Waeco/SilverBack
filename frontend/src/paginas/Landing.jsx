@@ -76,6 +76,7 @@ function CarruselImagenes() {
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-base-claro to-secondary/5 border border-gray-800/40">
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-black/40 pointer-events-none" />
       <div className="aspect-[16/9] sm:aspect-[21/9] relative">
         <AnimatePresence mode="wait">
           <motion.div
@@ -86,9 +87,19 @@ function CarruselImagenes() {
             transition={{ duration: 0.4 }}
             className="absolute inset-0 flex flex-col items-center justify-center p-8 sm:p-12 text-center"
           >
-            <span className="text-5xl sm:text-6xl mb-4">{slides[actual].emoji}</span>
-            <h3 className="texto-display text-2xl sm:text-3xl text-texto-primary mb-3">{slides[actual].titulo}</h3>
-            <p className="text-sm sm:text-base text-texto-secondary max-w-md">{slides[actual].desc}</p>
+            <span className="relative z-10 text-5xl sm:text-6xl mb-4 drop-shadow-lg">{slides[actual].emoji}</span>
+            <h3
+              className="relative z-10 texto-juvenil text-3xl sm:text-4xl font-bold mb-3 drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]"
+              style={{ color: '#ffffff' }}
+            >
+              {slides[actual].titulo}
+            </h3>
+            <p
+              className="relative z-10 texto-juvenil text-sm sm:text-base drop-shadow-[0_2px_5px_rgba(0,0,0,0.95)] max-w-md"
+              style={{ color: '#ffffff' }}
+            >
+              {slides[actual].desc}
+            </p>
           </motion.div>
         </AnimatePresence>
 
@@ -147,9 +158,11 @@ export default function Landing() {
       <header className="border-b border-gray-800/30 bg-card/50 backdrop-blur-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-white font-bold text-xs">SB</span>
-            </div>
+            <img
+              src="/images/Logo_silverbackFinal.jpg"
+              alt="SilverBack"
+              className="w-9 h-9 rounded-xl object-cover"
+            />
             <span className="texto-display text-xl text-texto-primary">SilverBack</span>
           </div>
           <div className="flex items-center gap-3">
@@ -332,9 +345,11 @@ export default function Landing() {
       <footer className="border-t border-gray-800/30 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-white font-bold text-[10px]">SB</span>
-            </div>
+            <img
+              src="/images/Logo_silverbackFinal.jpg"
+              alt="SilverBack"
+              className="w-6 h-6 rounded-lg object-cover"
+            />
             <span className="texto-display text-sm text-texto-primary">SilverBack</span>
           </div>
           <p className="text-xs text-texto-muted">© 2026 SilverBack. Nutrición deportiva inteligente.</p>

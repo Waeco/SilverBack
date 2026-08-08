@@ -82,12 +82,10 @@ export default function PaginaRecuperarPassword() {
 
           <form onSubmit={manejarEnvio} className="space-y-4">
             <div>
-              <label htmlFor="recup-correo" className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
+              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-texto-muted" />
                 <input
-                  id="recup-correo"
-                  name="correo"
                   type="email"
                   value={correo}
                   onChange={(e) => setCorreo(e.target.value)}

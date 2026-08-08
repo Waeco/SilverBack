@@ -39,17 +39,6 @@ export function alertaError(titulo, texto) {
   })
 }
 
-export function alertaAdvertencia(titulo, texto) {
-  return Swal.fire({
-    ...TEMA_OSCURO,
-    icon: 'warning',
-    title: titulo,
-    text: texto,
-    iconColor: '#f59e0b',
-    confirmButtonText: 'Entendido',
-  })
-}
-
 export function alertaConfirmar(titulo, texto) {
   return Swal.fire({
     ...TEMA_OSCURO,

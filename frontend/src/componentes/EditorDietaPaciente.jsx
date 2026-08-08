@@ -33,6 +33,8 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
   const [resultadosBusqueda, setResultadosBusqueda] = useState([])
   const [buscando, setBuscando] = useState(false)
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null)
+  const [alimentoEditable, setAlimentoEditable] = useState(null)
+  const [cantidadEditable, setCantidadEditable] = useState(100)
 
   const cargarDieta = useCallback(async () => {
     if (!paciente) return
@@ -69,25 +71,70 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
     }
   }, [terminoBusqueda])
 
-  const agregarItem = (alimento) => {
+  const grupoDe = (tipo) => items.filter(i => i.tipo_comida === tipo)
+
+  const prepararAlimento = (alimento) => {
     if (!tipoSeleccionado) return
-    const info = parsearInfoAlimento(alimento.food_description || '')
-    const factor = 100 / 100
+    if (grupoDe(tipoSeleccionado).length >= 2) {
+      alertaError('Máximo de alimentos', 'Solo se permiten 2 alimentos por categoría de comida.')
+      return
+    }
+    setAlimentoEditable(alimento)
+    setCantidadEditable(100)
+  }
+
+  const confirmarAlimento = () => {
+    if (!alimentoEditable) return
+    const cantidadNum = Math.max(1, Number(cantidadEditable) || 100)
+    const info = parsearInfoAlimento(alimentoEditable.food_description || '')
+    const factor = cantidadNum / 100
     const nuevo = {
       id_temp: Date.now(),
       tipo_comida: tipoSeleccionado,
-      nombre_alimento: alimento.food_name,
-      cantidad: 100,
+      nombre_alimento: alimentoEditable.food_name,
+      cantidad: Math.round(cantidadNum),
       unidad: 'g',
       calorias_totales: Math.round((info.calorias || 0) * factor),
       proteinas_totales: Math.round(((info.proteinas || 0) * factor) * 10) / 10,
       carbohidratos_totales: Math.round(((info.carbohidratos || 0) * factor) * 10) / 10,
       grasas_totales: Math.round(((info.grasas || 0) * factor) * 10) / 10,
+      macros_base_calorias: info.calorias || 0,
+      macros_base_proteinas: info.proteinas || 0,
+      macros_base_carbos: info.carbohidratos || 0,
+      macros_base_grasas: info.grasas || 0,
       editando: false,
     }
     setItems([...items, nuevo])
+    setAlimentoEditable(null)
     setResultadosBusqueda([])
     setTerminoBusqueda('')
+  }
+
+  const actualizarPorcion = (idTemp, nuevaCantidad) => {
+    const cantidadNum = Math.max(1, Number(nuevaCantidad) || 0)
+    if (!cantidadNum) return
+    setItems(items.map(i => {
+      if (i.id_temp !== idTemp) return i
+      const factor = cantidadNum / (i.cantidad || 100)
+      if (i.macros_base_calorias !== undefined) {
+        return {
+          ...i,
+          cantidad: Math.round(cantidadNum),
+          calorias_totales: Math.round(i.macros_base_calorias * factor),
+          proteinas_totales: Math.round(i.macros_base_proteinas * factor * 10) / 10,
+          carbohidratos_totales: Math.round(i.macros_base_carbos * factor * 10) / 10,
+          grasas_totales: Math.round(i.macros_base_grasas * factor * 10) / 10,
+        }
+      }
+      return {
+        ...i,
+        cantidad: Math.round(cantidadNum),
+        calorias_totales: Math.round(Number(i.calorias_totales || 0) * factor),
+        proteinas_totales: Math.round(Number(i.proteinas_totales || 0) * factor * 10) / 10,
+        carbohidratos_totales: Math.round(Number(i.carbohidratos_totales || 0) * factor * 10) / 10,
+        grasas_totales: Math.round(Number(i.grasas_totales || 0) * factor * 10) / 10,
+      }
+    }))
   }
 
   const eliminarItem = (idTemp) => {
@@ -188,19 +235,32 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
                   <div>
                     <p className="text-sm font-medium text-texto-secondary mb-2">Agregar alimento a:</p>
                     <div className="flex flex-wrap gap-2 mb-3">
-                      {TIPOS_COMIDA.map(t => (
-                        <button
-                          key={t.valor}
-                          onClick={() => setTipoSeleccionado(tipoSeleccionado === t.valor ? null : t.valor)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                            tipoSeleccionado === t.valor
-                              ? 'bg-primary text-white'
-                              : 'bg-base-claro text-texto-secondary hover:text-texto-primary'
-                          }`}
-                        >
-                          {t.etiqueta}
-                        </button>
-                      ))}
+                      {TIPOS_COMIDA.map(t => {
+                        const n = grupoDe(t.valor).length
+                        const lleno = n >= 2
+                        return (
+                          <button
+                            key={t.valor}
+                            onClick={() => {
+                              if (lleno) {
+                                alertaError('Máximo de alimentos', `"{t.etiqueta}" ya tiene 2 alimentos. Elimina uno para agregar otro.`)
+                                return
+                              }
+                              setTipoSeleccionado(tipoSeleccionado === t.valor ? null : t.valor)
+                            }}
+                            disabled={lleno}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              tipoSeleccionado === t.valor
+                                ? 'bg-primary text-white'
+                                : lleno
+                                  ? 'bg-base-claro/40 text-texto-muted/40 cursor-not-allowed'
+                                  : 'bg-base-claro text-texto-secondary hover:text-texto-primary'
+                            }`}
+                          >
+                            {t.etiqueta} ({n}/2)
+                          </button>
+                        )
+                      })}
                     </div>
                     {tipoSeleccionado && (
                       <div className="flex gap-2">
@@ -222,7 +282,7 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
                         {resultadosBusqueda.map((alimento) => (
                           <button
                             key={alimento.food_id}
-                            onClick={() => agregarItem(alimento)}
+                            onClick={() => prepararAlimento(alimento)}
                             className="w-full text-left p-2.5 rounded-lg bg-base-claro/50 hover:bg-base-claro transition-colors border border-transparent hover:border-primary/30"
                           >
                             <p className="text-sm font-medium text-texto-primary">{alimento.food_name}</p>
@@ -232,6 +292,65 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
                       </div>
                     )}
                   </div>
+
+                  {/* Vista previa al configurar porción */}
+                  {alimentoEditable && (
+                    <div className="p-4 rounded-xl bg-base-claro/60 border border-primary/30">
+                      <p className="text-sm font-semibold text-texto-primary mb-1">{alimentoEditable.food_name}</p>
+                      <p className="text-xs text-texto-secondary mb-3">
+                        Agregar a {TIPOS_COMIDA.find(t => t.valor === tipoSeleccionado)?.etiqueta}
+                      </p>
+                      {(() => {
+                        const info = parsearInfoAlimento(alimentoEditable.food_description || '')
+                        const cantidadNum = Math.max(1, Number(cantidadEditable) || 100)
+                        const factor = cantidadNum / 100
+                        return (
+                          <>
+                            <div className="flex items-end gap-3 mb-3">
+                              <div className="flex-1">
+                                <label className="text-xs text-texto-secondary block mb-1">Cantidad (g)</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={cantidadEditable}
+                                  onChange={(e) => setCantidadEditable(e.target.value)}
+                                  className="input w-full text-sm"
+                                />
+                              </div>
+                              <span className="text-xs text-texto-muted pb-2">por 100 g de alimento</span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2 text-center mb-3">
+                              <div className="p-2 rounded-lg bg-base-claro">
+                                <p className="font-semibold text-sm text-texto-primary">{Math.round((info.calorias || 0) * factor)}</p>
+                                <p className="text-[10px] text-texto-muted">kcal</p>
+                              </div>
+                              <div className="p-2 rounded-lg bg-base-claro">
+                                <p className="font-semibold text-sm text-blue-400">{Math.round(((info.proteinas || 0) * factor) * 10) / 10}</p>
+                                <p className="text-[10px] text-texto-muted">Proteína (g)</p>
+                              </div>
+                              <div className="p-2 rounded-lg bg-base-claro">
+                                <p className="font-semibold text-sm text-amber-400">{Math.round(((info.carbohidratos || 0) * factor) * 10) / 10}</p>
+                                <p className="text-[10px] text-texto-muted">Carbos (g)</p>
+                              </div>
+                              <div className="p-2 rounded-lg bg-base-claro">
+                                <p className="font-semibold text-sm text-red-400">{Math.round(((info.grasas || 0) * factor) * 10) / 10}</p>
+                                <p className="text-[10px] text-texto-muted">Grasa (g)</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => setAlimentoEditable(null)} className="flex-1 text-sm px-3 py-2 rounded-lg bg-base-claro text-texto-secondary hover:text-texto-primary transition-colors">
+                                Cancelar
+                              </button>
+                              <button onClick={confirmarAlimento} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2">
+                                <Plus className="w-4 h-4" />
+                                Agregar a la dieta
+                              </button>
+                            </div>
+                          </>
+                        )
+                      })()}
+                    </div>
+                  )}
 
                   {/* Items por tipo de comida */}
                   {TIPOS_COMIDA.map(t => {
@@ -244,15 +363,22 @@ export default function EditorDietaPaciente({ abierto, onCerrar, paciente, idNut
                           <span className="text-xs text-texto-muted">({grupo.length} alimentos)</span>
                         </div>
                         {grupo.length === 0 ? (
-                          <p className="text-xs text-texto-muted/50 italic pl-7">Sin alimentos — selecciona "{t.etiqueta}" arriba y busca un alimento.</p>
+                          <p className="text-xs text-texto-muted/50 italic pl-7">Sin alimentos (máx 2) — selecciona "{t.etiqueta}" arriba y busca un alimento.</p>
                         ) : (
                           <div className="space-y-1.5 pl-7">
                             {grupo.map((item) => (
-                              <div key={item.id_temp} className="flex items-center justify-between p-2.5 rounded-lg bg-base-claro/30 border border-gray-800/30 group">
+                              <div key={item.id_temp} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-base-claro/30 border border-gray-800/30 group">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium text-texto-primary">{item.nombre_alimento}</p>
                                   <p className="text-xs text-texto-muted">
-                                    {item.cantidad}{item.unidad} · {Math.round(item.calorias_totales)} kcal
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={item.cantidad}
+                                      onChange={(e) => actualizarPorcion(item.id_temp, e.target.value)}
+                                      className="w-16 mr-1 px-1 py-0.5 rounded bg-base-claro text-texto-primary text-xs border border-gray-800/40 focus:border-primary/50 outline-none"
+                                    />
+                                    {item.unidad} · {Math.round(item.calorias_totales)} kcal
                                     <span className="ml-2 text-blue-400/70">{Math.round(item.proteinas_totales)}g P</span>
                                     <span className="ml-1.5 text-amber-400/70">{Math.round(item.carbohidratos_totales)}g C</span>
                                     <span className="ml-1.5 text-red-400/70">{Math.round(item.grasas_totales)}g G</span>

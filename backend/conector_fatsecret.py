@@ -103,27 +103,3 @@ def buscar_alimentos(termino, max_resultados=10):
     except Exception as e:
         print(f'[FatSecret] Error parseando respuesta: {e}')
         return {'error': str(e)}
-
-
-def obtener_info_alimento(id_alimento):
-    _requerir_credenciales()
-    params = _parametros_base()
-    params['method'] = 'food.get'
-    params['food_id'] = id_alimento
-    params['oauth_signature'] = _firmar_solicitud(params)
-    try:
-        url_completa = URL_BASE + '?' + '&'.join(
-            f'{_urlenc(k)}={_urlenc(v)}' for k, v in sorted(params.items())
-        )
-        respuesta = requests.get(url_completa, timeout=10)
-        respuesta.raise_for_status()
-        datos = respuesta.json()
-        alimento = datos.get('food', {})
-        _, macros = _extraer_descripcion(alimento)
-        return macros
-    except requests.RequestException as e:
-        print(f'[FatSecret] Error al obtener alimento: {e}')
-        return {'error': str(e)}
-    except Exception as e:
-        print(f'[FatSecret] Error parseando alimento: {e}')
-        return {'error': str(e)}

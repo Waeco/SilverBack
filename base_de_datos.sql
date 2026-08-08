@@ -8,14 +8,18 @@ CREATE DATABASE IF NOT EXISTS silverback_db
 
 USE silverback_db;
 
--- Las tablas se crean con IF NOT EXISTS para preservar datos existentes.
--- Para reiniciar desde cero, ejecuta manualmente: base_de_datos_reinicio.sql
+-- NOTA: los DROP están comentados a propósito para NO borrar datos.
+-- Las tablas se crean con CREATE TABLE IF NOT EXISTS y las columnas nuevas
+-- se agregan con las migraciones automáticas del backend al iniciar.
+-- Para reiniciar desde cero, descomenta los DROP.
 -- DROP TABLE IF EXISTS detalles_rutina;
 -- DROP TABLE IF EXISTS planes_rutina;
 -- DROP TABLE IF EXISTS detalles_dieta;
 -- DROP TABLE IF EXISTS planes_dieta;
 -- DROP TABLE IF EXISTS comidas_diarias;
 -- DROP TABLE IF EXISTS citas;
+-- DROP TABLE IF EXISTS mensajes;
+-- DROP TABLE IF EXISTS notificaciones;
 -- DROP TABLE IF EXISTS solicitudes_nutriologo;
 -- DROP TABLE IF EXISTS historial_medico;
 -- DROP TABLE IF EXISTS registro_habitos;
@@ -38,11 +42,35 @@ CREATE TABLE IF NOT EXISTS usuarios (
   activo           TINYINT(1)    NOT NULL DEFAULT 1,
   token_recuperacion       VARCHAR(64)  DEFAULT NULL,
   token_recuperacion_expira DATETIME    DEFAULT NULL,
-  token_verificacion_correo VARCHAR(64)  DEFAULT NULL,
-  correo_verificado        TINYINT(1)   NOT NULL DEFAULT 0,
+  intentos_fallidos INT          NOT NULL DEFAULT 0,
+  bloqueado_hasta   DATETIME     DEFAULT NULL,
+  correo_verificado TINYINT(1)   NOT NULL DEFAULT 1,
+  codigo_verificacion       VARCHAR(6)  DEFAULT NULL,
+  codigo_verificacion_expira DATETIME   DEFAULT NULL,
+  foto_perfil       VARCHAR(255) DEFAULT NULL,
+  nombres           VARCHAR(100) DEFAULT NULL,
+  apellido_paterno  VARCHAR(100) DEFAULT NULL,
+  apellido_materno  VARCHAR(100) DEFAULT NULL,
+  fecha_nacimiento  DATE        DEFAULT NULL,
   INDEX idx_correo (correo),
   INDEX idx_rol (rol)
 ) ENGINE=InnoDB;
+
+-- Migración para bases de datos ya existentes (creadas antes de estas columnas).
+-- correo_verificado nace en 1 para no bloquear cuentas ya existentes/semilla;
+-- solo los registros nuevos (vía /api/registro) se insertan con 0.
+-- (Si la columna ya existe -por ejemplo en una instalación nueva que ya la
+-- trae en el CREATE TABLE de arriba- el ejecutor del script ignora el error
+-- de "columna duplicada" y continúa con el resto del archivo sin problema.)
+ALTER TABLE usuarios ADD COLUMN correo_verificado TINYINT(1) NOT NULL DEFAULT 1;
+ALTER TABLE usuarios ADD COLUMN codigo_verificacion VARCHAR(6) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN codigo_verificacion_expira DATETIME DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN foto_perfil VARCHAR(255) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN nombres VARCHAR(100) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN apellido_paterno VARCHAR(100) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN apellido_materno VARCHAR(100) DEFAULT NULL;
+ALTER TABLE usuarios ADD COLUMN fecha_nacimiento DATE DEFAULT NULL;
+ALTER TABLE ejercicios ADD COLUMN categoria VARCHAR(100) DEFAULT NULL;
 
 -- ============================================================
 -- TABLA: nutriologos_perfil
@@ -107,13 +135,20 @@ CREATE TABLE IF NOT EXISTS comidas_diarias (
 -- ============================================================
 -- TABLA: citas
 -- ============================================================
+-- Nota: si ya tienes esta base de datos creada y no quieres perder datos,
+-- en vez de correr este script completo ejecuta solo:
+--   ALTER TABLE citas ADD COLUMN ubicacion VARCHAR(255) DEFAULT NULL AFTER estado;
+--   ALTER TABLE citas ADD COLUMN enlace_videollamada VARCHAR(255) DEFAULT NULL AFTER ubicacion;
 CREATE TABLE IF NOT EXISTS citas (
   id_cita       INT AUTO_INCREMENT PRIMARY KEY,
   id_paciente   INT NOT NULL,
   id_nutriologo INT NOT NULL,
   fecha         DATE NOT NULL,
   hora          TIME NOT NULL,
+  tipo          ENUM('videollamada', 'presencial') NOT NULL DEFAULT 'presencial',
   estado        ENUM('pendiente', 'confirmada', 'completada', 'cancelada') NOT NULL DEFAULT 'pendiente',
+  ubicacion     VARCHAR(255) DEFAULT NULL,
+  enlace_videollamada VARCHAR(255) DEFAULT NULL,
   notas         TEXT DEFAULT NULL,
   actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
@@ -181,6 +216,7 @@ CREATE TABLE IF NOT EXISTS planes_rutina (
   id_plan_rutina      INT AUTO_INCREMENT PRIMARY KEY,
   id_paciente         INT NOT NULL,
   id_nutriologo       INT DEFAULT NULL,
+  nombre_rutina       VARCHAR(100) DEFAULT NULL,
   activo              TINYINT(1)   NOT NULL DEFAULT 1,
   fecha_asignado      DATE         NOT NULL DEFAULT (CURRENT_DATE),
   actualizado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -205,6 +241,9 @@ CREATE TABLE IF NOT EXISTS detalles_rutina (
   imagen_url          VARCHAR(500) DEFAULT NULL,
   video_url           VARCHAR(500) DEFAULT NULL,
   orden               INT          NOT NULL DEFAULT 0,
+  dia_semana          VARCHAR(20)  DEFAULT 'Todos los días',
+  equipo              VARCHAR(50)  DEFAULT NULL,
+  progresion_peso     VARCHAR(255) DEFAULT NULL,
   FOREIGN KEY (id_plan_rutina) REFERENCES planes_rutina(id_plan_rutina) ON DELETE CASCADE,
   INDEX idx_detalle_rutina_plan (id_plan_rutina),
   CONSTRAINT chk_series CHECK (series > 0),
@@ -229,32 +268,141 @@ CREATE TABLE IF NOT EXISTS cache_alimentos (
 ) ENGINE=InnoDB;
 
 -- ============================================================
--- DATOS DE PRUEBA (SEED)
+-- TABLA: historial_medico
 -- ============================================================
-INSERT INTO usuarios (nombre_completo, correo, contrasenia_hash, rol) VALUES
-  ('Juan Pérez',     'juan@ejemplo.com',    SHA2('test1234', 256), 'atleta'),
-  ('Dra. María García', 'maria@ejemplo.com', SHA2('test1234', 256), 'nutriologo'),
-  ('Admin Sistema',  'admin@silverback.com', SHA2('admin1234', 256), 'admin');
+CREATE TABLE IF NOT EXISTS historial_medico (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente     INT NOT NULL,
+  id_nutriologo   INT DEFAULT NULL,
+  tipo            ENUM('peso', 'altura', 'enfermedad', 'alergia', 'nota') NOT NULL,
+  valor           VARCHAR(255) DEFAULT NULL,
+  descripcion     TEXT DEFAULT NULL,
+  fecha           DATE NOT NULL DEFAULT (CURRENT_DATE),
+  creado_en       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE SET NULL,
+  INDEX idx_historial_paciente (id_paciente),
+  INDEX idx_historial_tipo (tipo),
+  INDEX idx_historial_fecha (id_paciente, fecha)
+) ENGINE=InnoDB;
 
-INSERT INTO nutriologos_perfil (id_usuario, cedula, especialidad, experiencia, biografia, verificado) VALUES
-  (2, '12345678', 'Nutrición Deportiva', 10, 'Especialista en rendimiento deportivo con más de 10 años de experiencia.', 1);
+-- ============================================================
+-- TABLA: solicitudes_nutriologo
+-- Solicitudes de pacientes para ser asignados a un nutriólogo
+-- ============================================================
+CREATE TABLE IF NOT EXISTS solicitudes_nutriologo (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente    INT NOT NULL,
+  id_nutriologo  INT NOT NULL,
+  estado         ENUM('pendiente', 'aceptada', 'rechazada') NOT NULL DEFAULT 'pendiente',
+  creado_en      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
+  UNIQUE INDEX idx_solicitud_unica (id_paciente, id_nutriologo, estado),
+  INDEX idx_solicitud_nutriologo (id_nutriologo, estado)
+) ENGINE=InnoDB;
 
-INSERT INTO pacientes_perfil (id_usuario, peso_actual, altura, deporte, objetivo, id_nutriologo_asignado) VALUES
-  (1, 72.5, 175, 'CrossFit', 'Aumento de masa muscular', 1);
+-- ============================================================
+-- TABLA: mensajes
+-- Chat entre un paciente y su nutriólogo asignado
+-- ============================================================
+CREATE TABLE IF NOT EXISTS mensajes (
+  id_mensaje    INT AUTO_INCREMENT PRIMARY KEY,
+  id_paciente   INT NOT NULL,
+  id_nutriologo INT NOT NULL,
+  id_emisor     INT NOT NULL,
+  contenido     VARCHAR(2000) NOT NULL,
+  leido         TINYINT(1) NOT NULL DEFAULT 0,
+  enviado_en    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_paciente) REFERENCES pacientes_perfil(id_paciente) ON DELETE CASCADE,
+  FOREIGN KEY (id_nutriologo) REFERENCES nutriologos_perfil(id_nutriologo) ON DELETE CASCADE,
+  FOREIGN KEY (id_emisor) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  INDEX idx_mensajes_conversacion (id_paciente, id_nutriologo, enviado_en),
+  INDEX idx_mensajes_no_leidos (id_paciente, id_nutriologo, leido)
+) ENGINE=InnoDB;
 
-INSERT INTO comidas_diarias (id_paciente, fecha, tipo_comida, nombre_alimento, cantidad, unidad, calorias_totales, proteinas_totales, grasas_totales, carbohidratos_totales) VALUES
-  (1, CURDATE(), 'desayuno', 'Avena Integral', 100, 'g', 389, 16.9, 6.9, 66.3),
-  (1, CURDATE(), 'desayuno', 'Huevos Revueltos', 150, 'g', 223.5, 14.94, 16.47, 1.05),
-  (1, CURDATE(), 'comida', 'Pechuga de Pollo', 200, 'g', 330, 62, 7.2, 0),
-  (1, CURDATE(), 'comida', 'Arroz Integral', 150, 'g', 166.5, 3.87, 1.35, 34.44);
+-- ============================================================
+-- TABLA: notificaciones
+-- Notificaciones en la app (ej. cita creada, cita cancelada, etc.)
+-- Nota: si ya tienes la base de datos creada, corre solo el CREATE TABLE
+-- de abajo (no borra nada, usa IF NOT EXISTS).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS notificaciones (
+  id_notificacion INT AUTO_INCREMENT PRIMARY KEY,
+  id_usuario    INT NOT NULL,
+  tipo          VARCHAR(50) NOT NULL,
+  titulo        VARCHAR(150) NOT NULL,
+  mensaje       VARCHAR(255) NOT NULL,
+  enlace        VARCHAR(255) DEFAULT NULL,
+  leido         TINYINT(1) NOT NULL DEFAULT 0,
+  creado_en     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+  INDEX idx_notif_usuario (id_usuario, creado_en),
+  INDEX idx_notif_no_leidas (id_usuario, leido)
+) ENGINE=InnoDB;
 
-INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, estado) VALUES
-  (1, 1, DATE_ADD(CURDATE(), INTERVAL 3 DAY), '10:00:00', 'confirmada');
+-- ============================================================
+-- TABLA: ejercicios
+-- Catálogo local de ejercicios sincronizado desde wger.de (español)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ejercicios (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  wger_id        INT          UNIQUE,
+  nombre         VARCHAR(255) NOT NULL,
+  descripcion    TEXT,
+  imagen_url     VARCHAR(500) DEFAULT NULL,
+  video_url      VARCHAR(500) DEFAULT NULL,
+  categoria      VARCHAR(100) DEFAULT NULL,
+  creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_ejercicio_nombre (nombre),
+  INDEX idx_wger_id (wger_id)
+) ENGINE=InnoDB;
 
-INSERT INTO planes_rutina (id_paciente, id_nutriologo, activo) VALUES
-  (1, 1, 1);
+-- ============================================================
+-- DATOS DE PRUEBA (SEED) — IDEMPOTENTE
+-- Solo inserta datos de prueba si no existen ya, así el script
+-- puede ejecutarse en cada arranque sin duplicar registros.
+-- ============================================================
+INSERT INTO usuarios (nombre_completo, correo, contrasenia_hash, rol)
+SELECT * FROM (
+  SELECT 'Juan Pérez', 'juan@ejemplo.com', SHA2('test1234', 256), 'atleta'
+  UNION ALL
+  SELECT 'Dra. María García', 'maria@ejemplo.com', SHA2('test1234', 256), 'nutriologo'
+  UNION ALL
+  SELECT 'Admin Sistema', 'admin@silverback.com', SHA2('admin1234', 256), 'admin'
+) t WHERE NOT EXISTS (SELECT 1 FROM usuarios);
 
-INSERT INTO detalles_rutina (id_plan_rutina, nombre_ejercicio, descripcion, series, repeticiones, descanso, orden) VALUES
-  (1, 'Sentadillas', 'Ejercicio básico para piernas y glúteos. Mantén la espalda recta.', 3, '12', '60 seg', 0),
-  (1, 'Flexiones de Brazos', 'Ejercicio clásico para pecho, hombros y tríceps.', 3, '10', '45 seg', 1),
-  (1, 'Plancha', 'Ejercicio isométrico para core. Mantén el cuerpo alineado.', 3, '30 seg', '30 seg', 2);
+INSERT INTO nutriologos_perfil (id_usuario, cedula, especialidad, experiencia, biografia, verificado)
+SELECT 2, '12345678', 'Nutrición Deportiva', 10, 'Especialista en rendimiento deportivo con más de 10 años de experiencia.', 1
+WHERE NOT EXISTS (SELECT 1 FROM nutriologos_perfil WHERE id_usuario = 2);
+
+INSERT INTO pacientes_perfil (id_usuario, peso_actual, altura, deporte, objetivo, id_nutriologo_asignado)
+SELECT 1, 72.5, 175, 'CrossFit', 'Aumento de masa muscular', 1
+WHERE NOT EXISTS (SELECT 1 FROM pacientes_perfil WHERE id_usuario = 1);
+
+INSERT INTO comidas_diarias (id_paciente, fecha, tipo_comida, nombre_alimento, cantidad, unidad, calorias_totales, proteinas_totales, grasas_totales, carbohidratos_totales)
+SELECT * FROM (
+  SELECT 1, CURDATE(), 'desayuno', 'Avena Integral', 100, 'g', 389, 16.9, 6.9, 66.3
+  UNION ALL SELECT 1, CURDATE(), 'desayuno', 'Huevos Revueltos', 150, 'g', 223.5, 14.94, 16.47, 1.05
+  UNION ALL SELECT 1, CURDATE(), 'comida', 'Pechuga de Pollo', 200, 'g', 330, 62, 7.2, 0
+  UNION ALL SELECT 1, CURDATE(), 'comida', 'Arroz Integral', 150, 'g', 166.5, 3.87, 1.35, 34.44
+) t
+WHERE NOT EXISTS (SELECT 1 FROM comidas_diarias WHERE id_paciente = 1);
+
+INSERT INTO citas (id_paciente, id_nutriologo, fecha, hora, tipo, estado)
+SELECT 1, 1, DATE_ADD(CURDATE(), INTERVAL 3 DAY), '10:00:00', 'videollamada', 'confirmada'
+WHERE NOT EXISTS (SELECT 1 FROM citas WHERE id_paciente = 1);
+
+INSERT INTO planes_rutina (id_paciente, id_nutriologo, activo)
+SELECT 1, 1, 1
+WHERE NOT EXISTS (SELECT 1 FROM planes_rutina WHERE id_paciente = 1 AND id_nutriologo = 1 AND activo = 1);
+
+INSERT INTO detalles_rutina (id_plan_rutina, nombre_ejercicio, descripcion, series, repeticiones, descanso, orden)
+SELECT * FROM (
+  SELECT 1, 'Sentadillas', 'Ejercicio básico para piernas y glúteos. Mantén la espalda recta.', 3, '12', '60 seg', 0
+  UNION ALL SELECT 1, 'Flexiones de Brazos', 'Ejercicio clásico para pecho, hombros y tríceps.', 3, '10', '45 seg', 1
+  UNION ALL SELECT 1, 'Plancha', 'Ejercicio isométrico para core. Mantén el cuerpo alineado.', 3, '30 seg', '30 seg', 2
+) t
+WHERE NOT EXISTS (SELECT 1 FROM detalles_rutina WHERE id_plan_rutina = 1);

@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X } from 'lucide-react'
 
-export const REGLAS = [
+const REGLAS = [
   { key: 'minLength', label: 'Al menos 6 caracteres', test: (v) => v.length >= 6 },
   { key: 'uppercase', label: 'Al menos una mayúscula', test: (v) => /[A-Z]/.test(v) },
   { key: 'lowercase', label: 'Al menos una minúscula', test: (v) => /[a-z]/.test(v) },
@@ -9,21 +9,16 @@ export const REGLAS = [
   { key: 'match', label: 'Las contraseñas coinciden', test: (v, c) => !c || v === c },
 ]
 
-export function passwordEsValida(valor, confirmar) {
-  return REGLAS.every((r) => r.test(valor, confirmar))
-}
-
 export default function ValidadorPassword({ valor, confirmar, visible, onCerrar }) {
   return (
     <AnimatePresence>
       {visible && (
         <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.15 }}
-          className="fixed z-[100] right-4 top-1/4 w-64 p-4 rounded-xl bg-card border border-gray-700/50 shadow-xl max-lg:right-2 max-lg:top-auto max-lg:bottom-4 max-lg:left-2 max-lg:w-auto"
-          style={{ maxHeight: 'calc(100vh - 2rem)' }}
+          className="absolute z-50 w-full mt-2 p-4 rounded-xl bg-card border border-gray-700/50 shadow-xl"
         >
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-texto-secondary uppercase tracking-wider">Requisitos de contraseña</p>

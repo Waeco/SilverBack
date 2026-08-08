@@ -1,17 +1,30 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { obtenerUsuario, actualizarUsuario } from '../servicios/ApiServicio'
-import { Loader2, Save, User as UserIcon } from 'lucide-react'
+import {
+  obtenerUsuario, actualizarUsuario, quitarNutriologoPaciente,
+  subirFotoPerfil, eliminarFotoPerfil, urlFotoPerfil
+} from '../servicios/ApiServicio'
+import { Loader2, Save, User as UserIcon, UserX, Stethoscope, Camera, Trash2, MessageCircle } from 'lucide-react'
 
 export default function PaginaPerfil() {
-  const { usuario: usuarioAuth } = useAutenticacion()
+  const { usuario: usuarioAuth, actualizarUsuarioLocal } = useAutenticacion()
   const [nombre, setNombre] = useState('')
+  const [nombres, setNombres] = useState('')
+  const [apellidoPaterno, setApellidoPaterno] = useState('')
+  const [apellidoMaterno, setApellidoMaterno] = useState('')
+  const [fechaNacimiento, setFechaNacimiento] = useState('')
   const [correo, setCorreo] = useState('')
   const [cargando, setCargando] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
   const [exito, setExito] = useState(null)
+  const [perfilPaciente, setPerfilPaciente] = useState(null)
+  const [quitando, setQuitando] = useState(false)
+  const [fotoPerfil, setFotoPerfil] = useState(null)
+  const [subiendoFoto, setSubiendoFoto] = useState(false)
+  const inputFotoRef = useRef(null)
 
   useEffect(() => {
     if (!usuarioAuth) return
@@ -20,7 +33,13 @@ export default function PaginaPerfil() {
         const respuesta = await obtenerUsuario(usuarioAuth.id_usuario)
         const u = respuesta.data.usuario
         setNombre(u.nombre_completo || '')
+        setNombres(u.nombres || '')
+        setApellidoPaterno(u.apellido_paterno || '')
+        setApellidoMaterno(u.apellido_materno || '')
+        setFechaNacimiento(u.fecha_nacimiento || '')
         setCorreo(u.correo || '')
+        setFotoPerfil(u.foto_perfil || null)
+        if (u.perfil) setPerfilPaciente(u.perfil)
       } catch {
         setError('Error al cargar perfil')
       } finally {
@@ -36,12 +55,86 @@ export default function PaginaPerfil() {
     setError(null)
     setExito(null)
     try {
-      await actualizarUsuario(usuarioAuth.id_usuario, { nombre_completo: nombre, correo })
+      await actualizarUsuario(usuarioAuth.id_usuario, {
+        nombres,
+        apellido_paterno: apellidoPaterno,
+        apellido_materno: apellidoMaterno,
+        correo,
+      })
       setExito('Perfil actualizado correctamente')
     } catch (err) {
       setError(err.response?.data?.error || 'Error al guardar')
     } finally {
       setGuardando(false)
+    }
+  }
+
+  const manejarSeleccionFoto = async (e) => {
+    const archivo = e.target.files?.[0]
+    e.target.value = '' // permite volver a seleccionar el mismo archivo después
+    if (!archivo) return
+
+    const tiposPermitidos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    if (!tiposPermitidos.includes(archivo.type)) {
+      setError('Formato no soportado. Usa JPG, PNG, GIF o WEBP.')
+      return
+    }
+    if (archivo.size > 3 * 1024 * 1024) {
+      setError('La imagen no debe superar los 3 MB.')
+      return
+    }
+
+    setError(null)
+    setExito(null)
+    setSubiendoFoto(true)
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const lector = new FileReader()
+        lector.onload = () => resolve(lector.result)
+        lector.onerror = () => reject(new Error('No se pudo leer el archivo'))
+        lector.readAsDataURL(archivo)
+      })
+      const respuesta = await subirFotoPerfil(usuarioAuth.id_usuario, base64)
+      const nuevaRuta = respuesta.data.foto_perfil
+      setFotoPerfil(nuevaRuta)
+      actualizarUsuarioLocal({ foto_perfil: nuevaRuta })
+      setExito('Foto de perfil actualizada correctamente')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al subir la foto de perfil')
+    } finally {
+      setSubiendoFoto(false)
+    }
+  }
+
+  const manejarEliminarFoto = async () => {
+    setError(null)
+    setExito(null)
+    setSubiendoFoto(true)
+    try {
+      await eliminarFotoPerfil(usuarioAuth.id_usuario)
+      setFotoPerfil(null)
+      actualizarUsuarioLocal({ foto_perfil: null })
+      setExito('Foto de perfil eliminada correctamente')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al eliminar la foto de perfil')
+    } finally {
+      setSubiendoFoto(false)
+    }
+  }
+
+  const manejarQuitarNutriologo = async () => {
+    if (!confirm('¿Estás seguro de que deseas eliminar a tu nutriólogo asignado?')) return
+    setQuitando(true)
+    setError(null)
+    setExito(null)
+    try {
+      await quitarNutriologoPaciente(perfilPaciente.id_paciente)
+      setPerfilPaciente((prev) => ({ ...prev, id_nutriologo_asignado: null }))
+      setExito('Nutriólogo removido correctamente.')
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Error al remover nutriólogo')
+    } finally {
+      setQuitando(false)
     }
   }
 
@@ -60,13 +153,79 @@ export default function PaginaPerfil() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
           <div className="tarjeta-hover text-center">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center mx-auto mb-4 border-2 border-primary/30">
-              <UserIcon className="w-10 h-10 text-primary" />
+            <div className="relative w-24 h-24 mx-auto mb-4">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border-2 border-primary/30 overflow-hidden">
+                {fotoPerfil ? (
+                  <img src={urlFotoPerfil(fotoPerfil)} alt="Foto de perfil" className="w-full h-full object-cover" />
+                ) : (
+                  <UserIcon className="w-10 h-10 text-primary" />
+                )}
+                {subiendoFoto && (
+                  <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => inputFotoRef.current?.click()}
+                disabled={subiendoFoto}
+                title="Cambiar foto de perfil"
+                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-primary hover:bg-primary-claro text-white flex items-center justify-center shadow-lg border-2 border-card transition-colors"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+              <input
+                ref={inputFotoRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                className="hidden"
+                onChange={manejarSeleccionFoto}
+              />
             </div>
+            {fotoPerfil && (
+              <button
+                type="button"
+                onClick={manejarEliminarFoto}
+                disabled={subiendoFoto}
+                className="text-xs text-texto-muted hover:text-error transition-colors inline-flex items-center gap-1 mb-3"
+              >
+                <Trash2 className="w-3 h-3" />
+                Quitar foto
+              </button>
+            )}
             <h3 className="text-lg font-semibold text-texto-primary">{usuarioAuth?.nombre_completo}</h3>
             <p className="text-sm text-texto-secondary mt-1 capitalize">{usuarioAuth?.rol}</p>
             <p className="text-xs text-texto-muted mt-1">{usuarioAuth?.correo}</p>
           </div>
+
+          {perfilPaciente && perfilPaciente.id_nutriologo_asignado && (
+            <div className="tarjeta-hover mt-4">
+              <h4 className="text-sm font-semibold text-texto-primary mb-3 flex items-center gap-2">
+                <Stethoscope className="w-4 h-4 text-primary" />
+                Nutriólogo Asignado
+              </h4>
+              <Link
+                to="/mensajes"
+                className="btn-primary text-sm flex items-center gap-2 w-full justify-center"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Enviar Mensaje
+              </Link>
+              <button
+                onClick={manejarQuitarNutriologo}
+                disabled={quitando}
+                className="btn-secondary text-sm flex items-center gap-2 w-full justify-center mt-2"
+              >
+                {quitando ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <UserX className="w-4 h-4" />
+                )}
+                {quitando ? 'Removiendo...' : 'Quitar Nutriólogo'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="lg:col-span-2">
@@ -77,17 +236,35 @@ export default function PaginaPerfil() {
             {exito && <div className="p-3 rounded-lg bg-exito/10 border border-exito/20 text-exito text-sm mb-4">{exito}</div>}
 
             <form onSubmit={manejarGuardar} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre completo</label>
-                <input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} className="input" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre(s)</label>
+                  <input type="text" value={nombres} onChange={(e) => setNombres(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Apellido paterno</label>
+                  <input type="text" value={apellidoPaterno} onChange={(e) => setApellidoPaterno(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Apellido materno</label>
+                  <input type="text" value={apellidoMaterno} onChange={(e) => setApellidoMaterno(e.target.value)} className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Fecha de nacimiento</label>
+                  <input
+                    type="date"
+                    value={fechaNacimiento || ''}
+                    readOnly
+                    disabled
+                    title="La fecha de nacimiento solo se define al registrarse o por el administrador"
+                    className="input opacity-70 cursor-not-allowed"
+                  />
+                  <p className="text-xs text-texto-muted mt-1">Solo se puede modificar al registrarse o por el administrador.</p>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>
                 <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-texto-secondary mb-1.5">Rol</label>
-                <input type="text" value={usuarioAuth?.rol || ''} className="input capitalize" disabled />
               </div>
               <button type="submit" disabled={guardando} className="btn-primary flex items-center gap-2">
                 {guardando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

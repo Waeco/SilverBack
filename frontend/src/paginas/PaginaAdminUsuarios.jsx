@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Shield, Loader2, User, Stethoscope, Crown, Search, Plus, Edit3, Trash2, X } from 'lucide-react'
-import cliente, { registrarUsuario, adminActualizarUsuario, adminEliminarUsuario } from '../servicios/ApiServicio'
+import cliente, { adminCrearUsuario, adminActualizarUsuario, adminEliminarUsuario } from '../servicios/ApiServicio'
 import { alertaExito, alertaError, alertaConfirmar } from '../servicios/AlertasServicio'
 
 const ICONOS_ROL = {
@@ -21,6 +21,10 @@ export default function PaginaAdminUsuarios() {
   const [guardando, setGuardando] = useState(false)
 
   const [formNombre, setFormNombre] = useState('')
+  const [formNombres, setFormNombres] = useState('')
+  const [formApellidoPaterno, setFormApellidoPaterno] = useState('')
+  const [formApellidoMaterno, setFormApellidoMaterno] = useState('')
+  const [formFechaNacimiento, setFormFechaNacimiento] = useState('')
   const [formCorreo, setFormCorreo] = useState('')
   const [formContrasena, setFormContrasena] = useState('')
   const [formRol, setFormRol] = useState('atleta')
@@ -42,6 +46,10 @@ export default function PaginaAdminUsuarios() {
   const abrirModalCrear = () => {
     setEditando(null)
     setFormNombre('')
+    setFormNombres('')
+    setFormApellidoPaterno('')
+    setFormApellidoMaterno('')
+    setFormFechaNacimiento('')
     setFormCorreo('')
     setFormContrasena('')
     setFormRol('atleta')
@@ -52,6 +60,10 @@ export default function PaginaAdminUsuarios() {
   const abrirModalEditar = (u) => {
     setEditando(u)
     setFormNombre(u.nombre_completo || '')
+    setFormNombres(u.nombres || '')
+    setFormApellidoPaterno(u.apellido_paterno || '')
+    setFormApellidoMaterno(u.apellido_materno || '')
+    setFormFechaNacimiento(u.fecha_nacimiento || '')
     setFormCorreo(u.correo || '')
     setFormContrasena('')
     setFormRol(u.rol || 'atleta')
@@ -64,12 +76,36 @@ export default function PaginaAdminUsuarios() {
     setEditando(null)
   }
 
+  const calcularEdad = (fecha) => {
+    if (!fecha) return null
+    const [a, m, d] = fecha.split('-').map(Number)
+    const hoy = new Date()
+    let edad = hoy.getFullYear() - a
+    if (hoy.getMonth() + 1 < m || (hoy.getMonth() + 1 === m && hoy.getDate() < d)) {
+      edad -= 1
+    }
+    return edad
+  }
+
   const manejarGuardar = async (e) => {
     e.preventDefault()
+    if (formFechaNacimiento && calcularEdad(formFechaNacimiento) < 18) {
+      alertaError('Error', 'El usuario debe ser mayor de 18 años.')
+      return
+    }
     setGuardando(true)
     try {
       if (editando) {
-        const datos = { nombre_completo: formNombre, correo: formCorreo, rol: formRol, activo: formActivo ? 1 : 0 }
+        const datos = {
+          nombre_completo: formNombre,
+          nombres: formNombres,
+          apellido_paterno: formApellidoPaterno,
+          apellido_materno: formApellidoMaterno,
+          fecha_nacimiento: formFechaNacimiento,
+          correo: formCorreo,
+          rol: formRol,
+          activo: formActivo ? 1 : 0,
+        }
         await adminActualizarUsuario(editando.id_usuario, datos)
         alertaExito('Usuario modificado', 'Los cambios se guardaron correctamente.')
       } else {
@@ -78,8 +114,21 @@ export default function PaginaAdminUsuarios() {
           setGuardando(false)
           return
         }
-        const datos = { nombre_completo: formNombre, correo: formCorreo, contrasena: formContrasena, rol: formRol }
-        await registrarUsuario(datos)
+        if (!formFechaNacimiento) {
+          alertaError('Error', 'La fecha de nacimiento es requerida.')
+          setGuardando(false)
+          return
+        }
+        const datos = {
+          nombres: formNombres,
+          apellido_paterno: formApellidoPaterno,
+          apellido_materno: formApellidoMaterno,
+          fecha_nacimiento: formFechaNacimiento,
+          correo: formCorreo,
+          contrasena: formContrasena,
+          rol: formRol,
+        }
+        await adminCrearUsuario(datos)
         alertaExito('Usuario creado', 'El usuario se registró correctamente.')
       }
       cerrarModal()
@@ -226,8 +275,30 @@ export default function PaginaAdminUsuarios() {
 
               <form onSubmit={manejarGuardar} className="p-5 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre completo</label>
-                  <input type="text" value={formNombre} onChange={(e) => setFormNombre(e.target.value)} className="input w-full" required />
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nombre(s)</label>
+                  <input type="text" value={formNombres} onChange={(e) => setFormNombres(e.target.value)} className="input w-full" required />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-texto-secondary mb-1.5">Apellido paterno</label>
+                    <input type="text" value={formApellidoPaterno} onChange={(e) => setFormApellidoPaterno(e.target.value)} className="input w-full" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-texto-secondary mb-1.5">Apellido materno</label>
+                    <input type="text" value={formApellidoMaterno} onChange={(e) => setFormApellidoMaterno(e.target.value)} className="input w-full" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-texto-secondary mb-1.5">Fecha de nacimiento</label>
+                  <input
+                    type="date"
+                    value={formFechaNacimiento}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setFormFechaNacimiento(e.target.value)}
+                    className="input w-full"
+                    required
+                  />
+                  <p className="text-xs text-texto-muted mt-1">Solo el administrador puede cambiarla. Debe ser mayor de 18.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-texto-secondary mb-1.5">Correo electrónico</label>

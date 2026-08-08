@@ -1,38 +1,34 @@
-# Sistema
-.DS_Store
-Thumbs.db
-*.log
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Entorno
+# Entornos y secretos
 .env
-*.local
+frontend/.env
+*.env
+!*.env.example
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
-*.egg-info/
-.venv/
 venv/
+.venv/
 
-# Node
+# Node / Frontend
 node_modules/
-package-lock.json
-
-# Build
+dist/
 frontend/dist/
 
-# Base de datos local
-mysql_data/
-mysql_config/
+# Archivos subidos por usuarios (no es código)
+backend/uploads/*
+!backend/uploads/.gitkeep
 
-# Script de inicio con claves API (usar template en su lugar)
+# Datos de MySQL del contenedor Docker (datadir real, no es código)
+mysql_data/
+
+# Scripts locales con claves reales (usar iniciar_servidor.template.ps1 como base)
+iniciar.ps1
 iniciar_servidor.ps1
 
-
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

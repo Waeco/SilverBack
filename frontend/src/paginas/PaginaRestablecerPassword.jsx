@@ -3,7 +3,7 @@ import { useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Loader2, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react'
 import { cambiarPassword } from '../servicios/ApiServicio'
-import ValidadorPassword, { passwordEsValida } from '../componentes/ValidadorPassword'
+import ValidadorPassword from '../componentes/ValidadorPassword'
 
 export default function PaginaRestablecerPassword() {
   const [searchParams] = useSearchParams()
@@ -48,8 +48,12 @@ export default function PaginaRestablecerPassword() {
   const manejarEnvio = async (e) => {
     e.preventDefault()
     setError(null)
-    if (!passwordEsValida(nuevaContrasena, confirmar)) {
-      setError('La contraseña no cumple con todos los requisitos')
+    if (nuevaContrasena.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+    if (nuevaContrasena !== confirmar) {
+      setError('Las contraseñas no coinciden')
       return
     }
     setCargando(true)
@@ -108,11 +112,9 @@ export default function PaginaRestablecerPassword() {
 
           <form onSubmit={manejarEnvio} className="space-y-4">
             <div ref={validadorRef} className="relative">
-              <label htmlFor="res-pass" className="block text-sm font-medium text-texto-secondary mb-1.5">Nueva contraseña</label>
+              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Nueva contraseña</label>
               <div className="relative">
                 <input
-                  id="res-pass"
-                  name="nueva_contrasena"
                   type={mostrarPass ? 'text' : 'password'}
                   value={nuevaContrasena}
                   onChange={(e) => setNuevaContrasena(e.target.value)}
@@ -138,10 +140,8 @@ export default function PaginaRestablecerPassword() {
             </div>
 
             <div>
-              <label htmlFor="res-confirm" className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
+              <label className="block text-sm font-medium text-texto-secondary mb-1.5">Confirmar contraseña</label>
               <input
-                id="res-confirm"
-                name="confirmar_contrasena"
                 type={mostrarPass ? 'text' : 'password'}
                 value={confirmar}
                 onChange={(e) => setConfirmar(e.target.value)}

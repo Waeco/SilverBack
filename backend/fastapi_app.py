@@ -37,6 +37,9 @@ class EjercicioAsignado(BaseModel):
     imagen_url: Optional[str] = None
     video_url: Optional[str] = None
     orden: int = 0
+    dia_semana: Optional[str] = "Todos los días"
+    equipo: Optional[str] = None
+    progresion_peso: Optional[str] = None
 
 class CrearRutinaSchema(BaseModel):
     id_paciente: int
@@ -45,51 +48,81 @@ class CrearRutinaSchema(BaseModel):
     nombre_rutina: Optional[str] = None
     ejercicios: List[EjercicioAsignado]
 
-class RutinaOut(BaseModel):
-    id_plan_rutina: int
-    id_paciente: int
-    id_nutriologo: Optional[int] = None
-    nombre_rutina: Optional[str] = None
-    activo: bool
-    fecha_asignado: str
-    detalles: list
-
 # --- Endpoints ---
 
 @app.get("/api/ejercicios/buscar", response_model=List[EjercicioOut])
-async def buscar_ejercicios(q: str = Query(min_length=3)):
+async def buscar_ejercicios(q: str = Query(default="", min_length=0), categoria: str = Query(default="")):
     conn = obtener_conexion()
     if not conn:
         raise HTTPException(status_code=500, detail="Error de conexión a BD")
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            "SELECT id, wger_id, nombre, descripcion, imagen_url, video_url "
-            "FROM ejercicios WHERE nombre LIKE %s ORDER BY nombre LIMIT 20",
-            (f"%{q}%",)
-        )
+        consulta = ("SELECT id, wger_id, nombre, descripcion, imagen_url, video_url FROM ejercicios")
+        where = []
+        parametros = []
+        if q and len(q.strip()) >= 3:
+            where.append("nombre LIKE %s")
+            parametros.append(f"%{q.strip()}%")
+        if categoria:
+            where.append("categoria = %s")
+            parametros.append(categoria)
+        if where:
+            consulta += " WHERE " + " AND ".join(where)
+        consulta += " ORDER BY nombre LIMIT 30"
+        cursor.execute(consulta, parametros)
         resultados = cursor.fetchall()
+
+        # Si el catálogo local está vacío (o sin coincidencias), cae a la API
+        # de wger en vivo y guarda los resultados en la BD como caché.
+        if not resultados and len(q.strip()) >= 3:
+            from conector_wger import buscar_ejercicios as buscar_wger
+            datos_wger = buscar_wger(q, max_resultados=10)
+            for ej in datos_wger.get('results', []):
+                wger_id = ej.get('id')
+                resultados.append({
+                    'id': wger_id,
+                    'wger_id': wger_id,
+                    'nombre': ej.get('nombre', ''),
+                    'descripcion': ej.get('descripcion', ''),
+                    'imagen_url': ej.get('imagen', ''),
+                    'video_url': ej.get('video', ''),
+                })
+                try:
+                    cursor.execute(
+                        "INSERT INTO ejercicios (wger_id, nombre, descripcion, imagen_url, video_url) "
+                        "VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE "
+                        "nombre=VALUES(nombre), descripcion=VALUES(descripcion), "
+                        "imagen_url=VALUES(imagen_url), video_url=VALUES(video_url)",
+                        (wger_id, ej.get('nombre', ''), ej.get('descripcion', ''),
+                         ej.get('imagen', '') or None, ej.get('video', '') or None)
+                    )
+                except Exception:
+                    pass
+            if resultados:
+                conn.commit()
         return resultados
     finally:
         cursor.close()
         conn.close()
 
 
-@app.get("/api/ejercicios/{id}", response_model=EjercicioOut)
-async def obtener_ejercicio(id: int):
+@app.get("/api/ejercicios/categorias")
+async def obtener_categorias():
     conn = obtener_conexion()
     if not conn:
         raise HTTPException(status_code=500, detail="Error de conexión a BD")
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, wger_id, nombre, descripcion, imagen_url, video_url "
-            "FROM ejercicios WHERE id = %s", (id,)
+            "SELECT COALESCE(categoria, 'General') AS nombre, COUNT(*) AS total "
+            "FROM ejercicios GROUP BY categoria"
         )
-        resultado = cursor.fetchone()
-        if not resultado:
-            raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
-        return resultado
+        filas = cursor.fetchall()
+        # Solo nombres base (sin 'General' vacíos), en orden de grupo muscular
+        orden = {'Pecho': 1, 'Espalda': 2, 'Piernas': 3, 'Pierna': 3, 'Hombros': 4,
+                 'Brazos': 5, 'Abdominales': 6, 'Pantorrillas': 7, 'Cardio': 8}
+        filas.sort(key=lambda f: orden.get(f['nombre'], 99))
+        return filas
     finally:
         cursor.close()
         conn.close()
@@ -108,34 +141,52 @@ async def crear_rutina(datos: CrearRutinaSchema):
     try:
         cursor = conn.cursor(dictionary=True)
 
+        # Si ya existe un plan activo, se reutiliza y conserva su fecha de
+        # asignación original (no se re-fecha al día en que se vuelve a guardar).
         cursor.execute(
-            "UPDATE planes_rutina SET activo=0 WHERE id_paciente=%s AND activo=1",
+            "SELECT id_plan_rutina FROM planes_rutina WHERE id_paciente=%s AND activo=1 "
+            "ORDER BY fecha_asignado DESC LIMIT 1",
             (datos.id_paciente,)
         )
-
-        if datos.rol_asignador == 'nutriologo':
-            cursor.execute(
-                "INSERT INTO planes_rutina (id_paciente, id_nutriologo, nombre_rutina, activo) "
-                "VALUES (%s, %s, %s, 1)",
-                (datos.id_paciente, datos.id_asignador, datos.nombre_rutina)
-            )
+        plan_activo = cursor.fetchone()
+        if plan_activo:
+            id_plan = plan_activo['id_plan_rutina']
+            cursor.execute("DELETE FROM detalles_rutina WHERE id_plan_rutina=%s", (id_plan,))
+            if datos.rol_asignador == 'nutriologo':
+                cursor.execute(
+                    "UPDATE planes_rutina SET id_nutriologo=%s, nombre_rutina=%s WHERE id_plan_rutina=%s",
+                    (datos.id_asignador, datos.nombre_rutina, id_plan)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE planes_rutina SET id_nutriologo=NULL, nombre_rutina=%s WHERE id_plan_rutina=%s",
+                    (datos.nombre_rutina, id_plan)
+                )
         else:
-            cursor.execute(
-                "INSERT INTO planes_rutina (id_paciente, nombre_rutina, activo) "
-                "VALUES (%s, %s, 1)",
-                (datos.id_paciente, datos.nombre_rutina)
-            )
-
-        id_plan = cursor.lastrowid
+            if datos.rol_asignador == 'nutriologo':
+                cursor.execute(
+                    "INSERT INTO planes_rutina (id_paciente, id_nutriologo, nombre_rutina, activo) "
+                    "VALUES (%s, %s, %s, 1)",
+                    (datos.id_paciente, datos.id_asignador, datos.nombre_rutina)
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO planes_rutina (id_paciente, nombre_rutina, activo) "
+                    "VALUES (%s, %s, 1)",
+                    (datos.id_paciente, datos.nombre_rutina)
+                )
+            id_plan = cursor.lastrowid
 
         for ej in datos.ejercicios:
             cursor.execute(
                 "INSERT INTO detalles_rutina (id_plan_rutina, id_ejercicio, nombre_ejercicio, "
-                "descripcion, series, repeticiones, descanso, imagen_url, video_url, orden) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "descripcion, series, repeticiones, descanso, imagen_url, video_url, orden, "
+                "dia_semana, equipo, progresion_peso) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (id_plan, ej.ejercicio_id, ej.nombre_ejercicio, ej.descripcion,
                  ej.series, ej.repeticiones, ej.descanso,
-                 ej.imagen_url, ej.video_url, ej.orden)
+                 ej.imagen_url, ej.video_url, ej.orden,
+                 ej.dia_semana, ej.equipo, ej.progresion_peso)
             )
 
         conn.commit()
@@ -191,22 +242,6 @@ async def desactivar_rutina(id_plan: int):
 
 # --- Esquemas Historial Médico ---
 
-class HistorialEntry(BaseModel):
-    id_paciente: int
-    id_nutriologo: Optional[int] = None
-    tipo: str = Field(pattern=r'^(peso|altura|enfermedad|alergia|nota)$')
-    valor: Optional[str] = None
-    descripcion: Optional[str] = None
-    fecha: str = Field(default_factory=lambda: __import__('datetime').date.today().isoformat())
-
-
-class HistorialUpdate(BaseModel):
-    tipo: Optional[str] = Field(default=None, pattern=r'^(peso|altura|enfermedad|alergia|nota)$')
-    valor: Optional[str] = None
-    descripcion: Optional[str] = None
-    fecha: Optional[str] = None
-
-
 class HistorialCompleto(BaseModel):
     id_paciente: int
     id_nutriologo: Optional[int] = None
@@ -236,28 +271,6 @@ async def obtener_historial(id_paciente: int):
             (id_paciente,)
         )
         return cursor.fetchall()
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.post("/api/historial", status_code=201)
-async def crear_historial(entry: HistorialEntry):
-    conn = obtener_conexion()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Error de conexión a BD")
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO historial_medico (id_paciente, id_nutriologo, tipo, valor, descripcion, fecha) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (entry.id_paciente, entry.id_nutriologo, entry.tipo, entry.valor, entry.descripcion, entry.fecha)
-        )
-        conn.commit()
-        return {"status": "success", "id": cursor.lastrowid}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
         conn.close()
@@ -296,45 +309,6 @@ async def crear_historial_completo(entry: HistorialCompleto):
 
         conn.commit()
         return {"status": "success", "insertados": insertados}
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.put("/api/historial/{id}")
-async def actualizar_historial(id: int, entry: HistorialUpdate):
-    conn = obtener_conexion()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Error de conexión a BD")
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id FROM historial_medico WHERE id=%s", (id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Registro no encontrado")
-
-        campos = {}
-        if entry.tipo is not None:
-            campos['tipo'] = entry.tipo
-        if entry.valor is not None:
-            campos['valor'] = entry.valor
-        if entry.descripcion is not None:
-            campos['descripcion'] = entry.descripcion
-        if entry.fecha is not None:
-            campos['fecha'] = entry.fecha
-
-        if not campos:
-            return {"status": "success", "message": "Sin cambios"}
-
-        set_clause = ", ".join(f"{k}=%s" for k in campos)
-        valores = list(campos.values()) + [id]
-        cursor.execute(f"UPDATE historial_medico SET {set_clause} WHERE id=%s", valores)
-        conn.commit()
-        return {"status": "success", "message": "Registro actualizado"}
     except HTTPException:
         raise
     except Exception as e:
@@ -414,6 +388,29 @@ async def enviar_solicitud(sol: SolicitudSchema):
         conn.close()
 
 
+@app.get("/api/solicitudes/pendientes-count")
+async def solicitudes_pendientes_count(id_usuario: int = Query(...)):
+    """Conteo rápido de solicitudes pendientes de un nutriólogo, a partir de su
+    id_usuario (para mostrar el badge de notificación en la barra de navegación
+    sin que el frontend tenga que conocer el id_nutriologo de antemano)."""
+    conn = obtener_conexion()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Error de conexión a BD")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT COUNT(*) AS total FROM solicitudes_nutriologo sn "
+            "JOIN nutriologos_perfil np ON np.id_nutriologo = sn.id_nutriologo "
+            "WHERE np.id_usuario = %s AND sn.estado = 'pendiente'",
+            (id_usuario,)
+        )
+        fila = cursor.fetchone()
+        return {"total": fila['total'] if fila else 0}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 @app.get("/api/solicitudes/pendientes/{id_nutriologo}")
 async def solicitudes_pendientes(id_nutriologo: int):
     conn = obtener_conexion()
@@ -452,8 +449,29 @@ async def aceptar_solicitud(id_solicitud: int):
             raise HTTPException(status_code=404, detail="Solicitud no encontrada o ya procesada.")
 
         cursor.execute(
+            "SELECT pp.*, (SELECT COUNT(*) FROM pacientes_perfil pp2 "
+            " WHERE pp2.id_usuario = pp.id_usuario AND pp2.id_nutriologo_asignado IS NOT NULL) AS asignados "
+            "FROM pacientes_perfil pp WHERE pp.id_paciente=%s",
+            (sol['id_paciente'],)
+        )
+        perfil = cursor.fetchone()
+        if not perfil:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado.")
+        if perfil['asignados'] > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="El paciente ya tiene un nutriólogo asignado. Debe desasignarlo antes de asignar otro."
+            )
+
+        cursor.execute(
             "UPDATE pacientes_perfil SET id_nutriologo_asignado=%s WHERE id_paciente=%s",
             (sol['id_nutriologo'], sol['id_paciente'])
+        )
+        cursor.execute(
+            "UPDATE pacientes_perfil SET id_nutriologo_asignado=NULL "
+            "WHERE id_paciente NOT IN (SELECT * FROM (SELECT %s) t) "
+            "AND id_usuario = (SELECT id_usuario FROM pacientes_perfil WHERE id_paciente=%s)",
+            (sol['id_paciente'], sol['id_paciente'])
         )
         cursor.execute(
             "UPDATE solicitudes_nutriologo SET estado='aceptada' WHERE id=%s",

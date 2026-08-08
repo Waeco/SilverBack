@@ -1,7 +1,9 @@
 import axios from 'axios'
 
+export const URL_SERVIDOR = 'http://localhost:8000'
+
 const cliente = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: `${URL_SERVIDOR}/api`,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
@@ -19,7 +21,11 @@ cliente.interceptors.request.use((config) => {
 cliente.interceptors.response.use(
   (respuesta) => respuesta,
   (error) => {
-    if (error.response?.status === 401) {
+    const esPeticionDeLogin = error.config?.url?.includes('/auth')
+    // Un 401 al intentar iniciar sesión es un error esperado (credenciales
+    // incorrectas) y debe mostrarse en el propio formulario, no provocar una
+    // redirección que recargue la página y borre el mensaje de error.
+    if (error.response?.status === 401 && !esPeticionDeLogin) {
       localStorage.removeItem('silverback_usuario')
       localStorage.removeItem('silverback_token')
       window.location.href = '/login'
@@ -28,12 +34,24 @@ cliente.interceptors.response.use(
   }
 )
 
-export async function iniciarSesion(correo, contrasena) {
-  return cliente.post('/auth', { correo, contrasena })
+export async function iniciarSesion(correo, contrasena, captchaToken = null) {
+  const cuerpo = { correo, contrasena }
+  if (captchaToken) cuerpo.captcha_token = captchaToken
+  return cliente.post('/auth', cuerpo)
 }
 
-export async function registrarUsuario(datos) {
-  return cliente.post('/registro', datos)
+export async function registrarUsuario(datos, captchaToken = null) {
+  const cuerpo = { ...datos }
+  if (captchaToken) cuerpo.captcha_token = captchaToken
+  return cliente.post('/registro', cuerpo)
+}
+
+export async function verificarCorreo(correo, codigo) {
+  return cliente.post('/verificar-correo', { correo, codigo })
+}
+
+export async function reenviarCodigoVerificacion(correo) {
+  return cliente.post('/reenviar-codigo', { correo })
 }
 
 export async function obtenerComidas(fecha, idPaciente = null) {
@@ -44,10 +62,6 @@ export async function obtenerComidas(fecha, idPaciente = null) {
 
 export async function guardarComida(datos) {
   return cliente.post('/comidas', datos)
-}
-
-export async function actualizarComida(idComida, datos) {
-  return cliente.put(`/comidas/${idComida}`, datos)
 }
 
 export async function eliminarComida(idComida) {
@@ -66,6 +80,19 @@ export async function actualizarUsuario(idUsuario, datos) {
   return cliente.put(`/usuario/${idUsuario}`, datos)
 }
 
+export async function subirFotoPerfil(idUsuario, imagenBase64) {
+  return cliente.post(`/usuario/${idUsuario}/foto`, { imagen: imagenBase64 })
+}
+
+export async function eliminarFotoPerfil(idUsuario) {
+  return cliente.delete(`/usuario/${idUsuario}/foto`)
+}
+
+export function urlFotoPerfil(ruta) {
+  if (!ruta) return null
+  return `${URL_SERVIDOR}${ruta}`
+}
+
 export async function obtenerCitas(idUsuario = null, rol = null) {
   const params = {}
   if (idUsuario) params.id_usuario = idUsuario
@@ -77,24 +104,6 @@ export async function crearCita(datos) {
   return cliente.post('/citas', datos)
 }
 
-export async function actualizarCita(idCita, estado) {
-  return cliente.put(`/citas/${idCita}`, { estado })
-}
-
-export async function eliminarCita(idCita) {
-  return cliente.delete(`/citas/${idCita}`)
-}
-
-export async function obtenerHabitos(idPaciente, fecha = null) {
-  const params = { id_paciente: idPaciente }
-  if (fecha) params.fecha = fecha
-  return cliente.get('/habitos', { params })
-}
-
-export async function guardarHabito(datos) {
-  return cliente.post('/habitos', datos)
-}
-
 export async function obtenerDiasConComidas(mes, idPaciente) {
   return cliente.get('/dias-con-comidas', { params: { mes, id_paciente: idPaciente } })
 }
@@ -103,8 +112,46 @@ export async function obtenerNutriologos({ termino = '', pagina = 1, limite = 10
   return cliente.get('/nutriologos', { params: { termino, pagina, limite } })
 }
 
+export async function obtenerNutriologo(idNutriologo) {
+  return cliente.get(`/nutriologo/${idNutriologo}`)
+}
+
 export async function obtenerPacientes(idNutriologo) {
   return cliente.get('/pacientes', { params: { id_nutriologo: idNutriologo } })
+}
+
+export async function obtenerMensajes(idPaciente, idNutriologo, despuesDe = null) {
+  const params = { id_paciente: idPaciente, id_nutriologo: idNutriologo }
+  if (despuesDe) params.despues_de = despuesDe
+  return cliente.get('/mensajes', { params })
+}
+
+export async function enviarMensaje(datos) {
+  return cliente.post('/mensajes', datos)
+}
+
+export async function marcarMensajesLeidos(datos) {
+  return cliente.put('/mensajes/leidos', datos)
+}
+
+export async function obtenerMensajesNoLeidos(idUsuario) {
+  return cliente.get('/mensajes/no-leidos', { params: { id_usuario: idUsuario } })
+}
+
+export async function obtenerNotificaciones(idUsuario) {
+  return cliente.get('/notificaciones', { params: { id_usuario: idUsuario } })
+}
+
+export async function obtenerNotificacionesNoLeidas(idUsuario) {
+  return cliente.get('/notificaciones/no-leidas', { params: { id_usuario: idUsuario } })
+}
+
+export async function marcarNotificacionLeida(idNotificacion) {
+  return cliente.put(`/notificaciones/${idNotificacion}/leida`)
+}
+
+export async function marcarNotificacionesLeidas(idUsuario) {
+  return cliente.put('/notificaciones/leidas', { id_usuario: idUsuario })
 }
 
 export async function obtenerStatsAdmin() {
@@ -113,6 +160,10 @@ export async function obtenerStatsAdmin() {
 
 export async function adminActualizarUsuario(idUsuario, datos) {
   return cliente.put(`/admin/usuarios/${idUsuario}`, datos)
+}
+
+export async function adminCrearUsuario(datos) {
+  return cliente.post('/admin/usuarios', datos)
 }
 
 export async function adminEliminarUsuario(idUsuario) {
@@ -131,25 +182,12 @@ export async function desactivarDieta(idPlan) {
   return cliente.delete(`/dieta/${idPlan}`)
 }
 
-export async function buscarEjercicios(termino) {
-  return cliente.get('/buscar-ejercicios', { params: { termino } })
-}
-
-export async function obtenerInfoEjercicio(idEjercicio) {
-  return cliente.get(`/ejercicio-info/${idEjercicio}`)
-}
-
-export async function obtenerRutinaPaciente(idPaciente) {
-  return cliente.get(`/rutina/${idPaciente}`)
-}
-
-export async function asignarRutina(datos) {
-  return cliente.post('/rutina', datos)
-}
-
-export async function desactivarRutina(idPlan) {
-  return cliente.delete(`/rutina/${idPlan}`)
-}
+// --- Cliente FastAPI (puerto 8001) ---
+const clienteFast = axios.create({
+  baseURL: 'http://localhost:8001/api',
+  timeout: 10000,
+  headers: { 'Content-Type': 'application/json' },
+})
 
 // --- Nuevos endpoints FastAPI (baja latencia, mirror local wger) ---
 
@@ -157,8 +195,14 @@ export async function buscarEjerciciosFast(termino) {
   return clienteFast.get('/ejercicios/buscar', { params: { q: termino } })
 }
 
-export async function obtenerEjercicioFast(idEjercicio) {
-  return clienteFast.get(`/ejercicios/${idEjercicio}`)
+export async function obtenerCategoriasEjercicios() {
+  return clienteFast.get('/ejercicios/categorias')
+}
+
+export async function buscarEjerciciosPorCategoria(categoria, termino = '') {
+  const params = { categoria }
+  if (termino && termino.trim()) params.q = termino
+  return clienteFast.get('/ejercicios/buscar', { params })
 }
 
 export async function obtenerRutinaPacienteFast(idPaciente) {
@@ -179,16 +223,8 @@ export async function obtenerHistorial(idPaciente) {
   return clienteFast.get(`/historial/${idPaciente}`)
 }
 
-export async function crearHistorial(datos) {
-  return clienteFast.post('/historial', datos)
-}
-
 export async function crearHistorialCompleto(datos) {
   return clienteFast.post('/historial/completo', datos)
-}
-
-export async function actualizarHistorial(id, datos) {
-  return clienteFast.put(`/historial/${id}`, datos)
 }
 
 export async function eliminarHistorial(id) {
@@ -203,6 +239,10 @@ export async function enviarSolicitud(idPaciente, idNutriologo) {
 
 export async function obtenerSolicitudesPendientes(idNutriologo) {
   return clienteFast.get(`/solicitudes/pendientes/${idNutriologo}`)
+}
+
+export async function obtenerSolicitudesPendientesCount(idUsuario) {
+  return clienteFast.get('/solicitudes/pendientes-count', { params: { id_usuario: idUsuario } })
 }
 
 export async function aceptarSolicitud(idSolicitud) {

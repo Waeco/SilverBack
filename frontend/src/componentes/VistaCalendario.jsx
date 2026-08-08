@@ -124,21 +124,19 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
     }
   }, [modalAbierto, fechaStr, cargarComidas])
 
-  const itemsCombinados = dieta ? [...detallesDieta, ...comidas] : comidas
-
-  const totalProteinas = itemsCombinados.reduce((s, c) => s + Number(c.proteinas_totales || 0), 0)
-  const totalCarbohidratos = itemsCombinados.reduce((s, c) => s + Number(c.carbohidratos_totales || 0), 0)
-  const totalGrasas = itemsCombinados.reduce((s, c) => s + Number(c.grasas_totales || 0), 0)
-  const totalCalorias = itemsCombinados.reduce((s, c) => s + Number(c.calorias_totales || 0), 0)
+  const totalProteinas = comidas.reduce((s, c) => s + Number(c.proteinas_totales || 0), 0)
+  const totalCarbohidratos = comidas.reduce((s, c) => s + Number(c.carbohidratos_totales || 0), 0)
+  const totalGrasas = comidas.reduce((s, c) => s + Number(c.grasas_totales || 0), 0)
+  const totalCalorias = comidas.reduce((s, c) => s + Number(c.calorias_totales || 0), 0)
 
   useEffect(() => {
     if (onActualizarStats) {
       onActualizarStats({ calorias: totalCalorias, proteinas: totalProteinas, carbohidratos: totalCarbohidratos, grasas: totalGrasas })
     }
     if (onActualizarComidas) {
-      onActualizarComidas(itemsCombinados)
+      onActualizarComidas(comidas)
     }
-  }, [totalCalorias, totalProteinas, totalCarbohidratos, totalGrasas, onActualizarStats, onActualizarComidas, itemsCombinados])
+  }, [totalCalorias, totalProteinas, totalCarbohidratos, totalGrasas, onActualizarStats, onActualizarComidas, comidas])
 
   const manejarCambioFecha = (fecha) => {
     setFechaSeleccionada(fecha)
@@ -175,7 +173,7 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
   }
 
   const comidasAgrupadas = {}
-  itemsCombinados.forEach(c => {
+  comidas.forEach(c => {
     const tipo = c.tipo_comida
     if (!comidasAgrupadas[tipo]) comidasAgrupadas[tipo] = []
     comidasAgrupadas[tipo].push(c)
@@ -257,6 +255,38 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
           </button>
         </div>
 
+        {dieta && detallesDieta.length > 0 && (
+          <div className="mb-6 tarjeta-hover border border-primary/20 bg-primary/5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-semibold text-texto-primary">Plan de Alimentación</h3>
+                <p className="text-xs text-texto-muted mt-0.5">
+                  Asignado{dieta.nombre_nutriologo ? ` por ${dieta.nombre_nutriologo}` : ''} · {dieta.fecha_asignado}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {Object.entries(ETIQUETAS_TIPO).map(([tipo, etiqueta]) => {
+                const itemsPlan = detallesDieta.filter(d => d.tipo_comida === tipo)
+                if (itemsPlan.length === 0) return null
+                return (
+                  <div key={tipo}>
+                    <p className="text-xs font-semibold text-texto-secondary mb-1">{etiqueta}</p>
+                    <div className="space-y-1">
+                      {itemsPlan.map(item => (
+                        <div key={item.id_detalle_dieta} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-base-claro/50">
+                          <span className="text-sm text-texto-primary">{item.nombre_alimento}</span>
+                          <span className="text-xs text-texto-muted">{item.cantidad} {item.unidad} · {Math.round(item.calorias_totales)} kcal</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {cargandoDieta ? (
           <div className="tarjeta">
             <div className="animate-pulse space-y-4">
@@ -271,10 +301,10 @@ export default function VistaCalendario({ idPaciente, onActualizarStats, onActua
               ))}
             </div>
           </div>
-        ) : itemsCombinados.length === 0 ? (
+        ) : comidas.length === 0 ? (
           <div className="tarjeta flex flex-col items-center justify-center py-12">
             <Utensils className="w-12 h-12 text-texto-muted/50 mb-3" />
-            <p className="text-texto-secondary text-sm">Sin comidas registradas</p>
+            <p className="text-texto-secondary text-sm">Sin comidas registradas este día</p>
             <p className="text-texto-muted text-xs mt-1">Agrega una comida para empezar</p>
           </div>
         ) : (
