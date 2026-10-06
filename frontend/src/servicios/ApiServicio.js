@@ -97,6 +97,12 @@ export function urlFotoPerfil(ruta) {
   return `${URL_SERVIDOR}${ruta}`
 }
 
+export function urlArchivo(ruta) {
+  if (!ruta) return null
+  if (ruta.startsWith('http://') || ruta.startsWith('https://')) return ruta
+  return `${URL_SERVIDOR}${ruta}`
+}
+
 export async function obtenerCitas(idUsuario = null, rol = null) {
   const params = {}
   if (idUsuario) params.id_usuario = idUsuario
@@ -248,6 +254,31 @@ export async function crearRutinaFast(datos) {
 
 export async function desactivarRutinaFast(idPlan) {
   return clienteFast.delete(`/rutinas/${idPlan}`)
+}
+
+// --- Multimedia de ejercicios (imágenes y videos que sube el nutriólogo) ---
+
+// Catálogo con filtros: { q, estado: 'todos'|'pendientes'|'sin_video'|'sin_imagen'|'completos', pagina, limite }
+export async function listarMultimediaEjerciciosFast(params) {
+  return clienteFast.get('/ejercicios/multimedia', { params })
+}
+
+// formData admite: id_usuario, imagen (archivo), video (archivo), imagen_externa (enlace), video_externo (enlace)
+export async function guardarMultimediaEjercicioFast(idEjercicio, formData, onProgreso) {
+  return clienteFast.post(`/ejercicios/${idEjercicio}/multimedia`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000, // videos de hasta 100 MB en conexiones lentas
+    onUploadProgress: (evento) => {
+      if (onProgreso && evento.total) onProgreso(Math.round((evento.loaded * 100) / evento.total))
+    },
+  })
+}
+
+// tipo: 'imagen' | 'video'
+export async function eliminarMultimediaEjercicioFast(idEjercicio, tipo, idUsuario) {
+  return clienteFast.delete(`/ejercicios/${idEjercicio}/multimedia/${tipo}`, {
+    params: { id_usuario: idUsuario },
+  })
 }
 
 // --- Historial Médico (FastAPI) ---

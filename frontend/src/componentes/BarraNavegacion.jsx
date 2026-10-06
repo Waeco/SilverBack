@@ -8,7 +8,7 @@ import {
 } from '../servicios/ApiServicio'
 import {
   LayoutDashboard, Utensils, CalendarDays, User, Stethoscope,
-  Users, Shield, Menu, X, LogOut, Dumbbell, ClipboardEdit, MessageCircle, Bell, CheckCheck,
+  Users, Shield, Menu, X, LogOut, Dumbbell, ClipboardEdit, MessageCircle, Bell, CheckCheck, Film,
 } from 'lucide-react'
 
 function obtenerEnlaces(rol) {
@@ -32,6 +32,7 @@ function obtenerEnlaces(rol) {
       ...comunes,
       { a: '/citas', etiqueta: 'Citas', icono: CalendarDays },
       { a: '/pacientes', etiqueta: 'Pacientes', icono: Users },
+      { a: '/ejercicios/multimedia', etiqueta: 'Multimedia', icono: Film },
       { a: '/mensajes', etiqueta: 'Mensajes', icono: MessageCircle },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
     ]
@@ -40,6 +41,7 @@ function obtenerEnlaces(rol) {
     return [
       ...comunes,
       { a: '/admin/usuarios', etiqueta: 'Usuarios', icono: Shield },
+      { a: '/ejercicios/multimedia', etiqueta: 'Multimedia', icono: Film },
       { a: '/perfil', etiqueta: 'Perfil', icono: User },
     ]
   }

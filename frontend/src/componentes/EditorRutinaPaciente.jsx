@@ -1,13 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Search, Loader2, Trash2, Save, GripVertical, Dumbbell } from 'lucide-react'
-import { buscarEjerciciosFast, obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast } from '../servicios/ApiServicio'
+import { X, Search, Loader2, Trash2, Save, GripVertical, Dumbbell, Upload, Pencil } from 'lucide-react'
+import { buscarEjerciciosFast, obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast, urlArchivo } from '../servicios/ApiServicio'
 import { alertaExito, alertaError, alertaConfirmar } from '../servicios/AlertasServicio'
+import { useAutenticacion } from '../context/ContextoAutenticacion'
+import ModalMultimediaEjercicio from './ModalMultimediaEjercicio'
 
 const DIAS = ['Todos los días', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 const EQUIPOS = ['Sin especificar', 'Peso corporal', 'Mancuernas', 'Barra', 'Máquina', 'Banda de resistencia', 'Kettlebell', 'Otro']
 
+// Texto corto de lo que le falta a un ejercicio: "Sin imagen", "Sin video" o "Sin imagen ni video".
+const textoFaltante = (e) => {
+  if (!e.imagen_url && !e.video_url) return 'Sin imagen ni video'
+  return !e.imagen_url ? 'Sin imagen' : 'Sin video'
+}
+
 export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNutriologo }) {
+  const { usuario } = useAutenticacion()
   const [nombreRutina, setNombreRutina] = useState('Rutina asignada')
   const [items, setItems] = useState([])
   const [cargando, setCargando] = useState(true)
@@ -19,6 +28,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
   const [diaParaAgregar, setDiaParaAgregar] = useState('Todos los días')
   const [filtroDia, setFiltroDia] = useState('Todos')
   const [idArrastrado, setIdArrastrado] = useState(null)
+  const [ejercicioMultimedia, setEjercicioMultimedia] = useState(null)
 
   const cargarRutina = useCallback(async () => {
     if (!paciente) return
@@ -92,6 +102,30 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
 
   const actualizarCampo = (idTemp, campo, valor) => {
     setItems(prev => prev.map(i => i.id_temp === idTemp ? { ...i, [campo]: valor } : i))
+  }
+
+  // --- Multimedia (imagen/video) del ejercicio: se guarda en el catálogo, no solo en esta rutina ---
+  const abrirMultimedia = (item) => {
+    const id = parseInt(item.id_ejercicio)
+    if (!id) {
+      alertaError('Ejercicio no disponible', 'Este ejercicio no está vinculado al catálogo, por lo que no se le puede subir multimedia.')
+      return
+    }
+    setEjercicioMultimedia({
+      id,
+      nombre: item.nombre_ejercicio,
+      imagen_url: item.imagen_url || '',
+      video_url: item.video_url || '',
+    })
+  }
+
+  const alGuardarMultimedia = ({ id, cambiados = [], ...urls }) => {
+    setItems(prev => prev.map(i => {
+      if (String(i.id_ejercicio) !== String(id)) return i
+      const parche = {}
+      cambiados.forEach(campo => { parche[campo] = urls[campo] || '' })
+      return { ...i, ...parche }
+    }))
   }
 
   // --- Arrastrar y soltar para reordenar ---
@@ -178,6 +212,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
   const reordenarHabilitado = filtroDia === 'Todos'
 
   return (
+    <>
     <AnimatePresence>
       {abierto && (
         <>
@@ -263,7 +298,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                           >
                             {ej.imagen_url ? (
                               <img
-                                src={ej.imagen_url}
+                                src={urlArchivo(ej.imagen_url)}
                                 alt={ej.nombre}
                                 className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-900"
                                 loading="lazy"
@@ -277,6 +312,9 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                               <p className="text-sm font-medium text-texto-primary">{ej.nombre}</p>
                               {ej.descripcion && (
                                 <p className="text-xs text-texto-muted line-clamp-1">{ej.descripcion}</p>
+                              )}
+                              {(!ej.imagen_url || !ej.video_url) && (
+                                <p className="text-[11px] text-accent mt-0.5">{textoFaltante(ej)}</p>
                               )}
                             </div>
                           </button>
@@ -349,12 +387,24 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                 </span>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium text-texto-primary truncate">{item.nombre_ejercicio}</p>
-                                  <button
-                                    onClick={() => expandirEjercicio(item)}
-                                    className="text-xs text-primary hover:text-primary-claro mt-0.5 flex items-center gap-1"
-                                  >
-                                    {ejercicioExpandido === item.id_temp ? 'Ocultar detalles' : 'Ver detalles'}
-                                  </button>
+                                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                                    <button
+                                      onClick={() => expandirEjercicio(item)}
+                                      className="text-xs text-primary hover:text-primary-claro flex items-center gap-1"
+                                    >
+                                      {ejercicioExpandido === item.id_temp ? 'Ocultar detalles' : 'Ver detalles'}
+                                    </button>
+                                    {(!item.imagen_url || !item.video_url) && (
+                                      <button
+                                        onClick={() => abrirMultimedia(item)}
+                                        title="Subir la imagen o el video que falta"
+                                        className="text-[11px] px-2 py-0.5 rounded-full border border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
+                                      >
+                                        <Upload className="w-3 h-3" />
+                                        {textoFaltante(item)} — subir
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                               <button onClick={() => eliminarItem(item.id_temp)} className="p-1.5 rounded text-texto-muted hover:text-error hover:bg-error/10 transition-colors flex-shrink-0">
@@ -376,14 +426,14 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                   {item.imagen_url && (
                                     <div className="mt-2 rounded-xl overflow-hidden border border-gray-800/30">
                                       <img
-                                        src={item.imagen_url}
+                                        src={urlArchivo(item.imagen_url)}
                                         alt={item.nombre_ejercicio}
                                         className="w-full h-auto max-h-60 object-contain bg-gray-900"
                                         loading="lazy"
                                       />
                                     </div>
                                   )}
-                                  {item.video_url && (
+                                  {item.video_url ? (
                                     <div className="mt-2 aspect-video rounded-xl overflow-hidden border border-gray-800/30 bg-gray-900">
                                       {item.video_url.includes('youtube.com/watch') || item.video_url.includes('youtu.be') ? (
                                         <iframe
@@ -395,7 +445,7 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                         />
                                       ) : (
                                         <video
-                                          src={item.video_url}
+                                          src={urlArchivo(item.video_url)}
                                           className="w-full h-full"
                                           controls
                                           playsInline
@@ -403,9 +453,23 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
                                         />
                                       )}
                                     </div>
-                                  )}
-                                  {!item.descripcion && !item.imagen_url && !item.video_url && (
-                                    <p className="text-xs text-texto-muted italic">Sin información adicional disponible.</p>
+                                  ) : null}
+                                  {(!item.imagen_url || !item.video_url) ? (
+                                    <button
+                                      onClick={() => abrirMultimedia(item)}
+                                      className="mt-2 w-full flex items-center justify-center gap-2 border border-dashed border-gray-700/60 rounded-xl py-4 text-xs text-texto-muted hover:border-primary/50 hover:text-primary transition-colors"
+                                    >
+                                      <Upload className="w-4 h-4" />
+                                      {textoFaltante(item)} — subir multimedia
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => abrirMultimedia(item)}
+                                      className="mt-2 text-xs text-primary hover:text-primary-claro flex items-center gap-1"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                      Cambiar imagen o video
+                                    </button>
                                   )}
                                 </motion.div>
                               )}
@@ -501,5 +565,14 @@ export default function EditorRutinaPaciente({ abierto, onCerrar, paciente, idNu
         </>
       )}
     </AnimatePresence>
+
+    <ModalMultimediaEjercicio
+      abierto={!!ejercicioMultimedia}
+      ejercicio={ejercicioMultimedia}
+      idUsuario={usuario?.id_usuario}
+      onCerrar={() => setEjercicioMultimedia(null)}
+      onGuardado={alGuardarMultimedia}
+    />
+    </>
   )
 }

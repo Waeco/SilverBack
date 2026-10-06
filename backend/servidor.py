@@ -2059,6 +2059,8 @@ class ManejadorSilverBack(BaseHTTPRequestHandler):
         tipos_mime = {
             '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
             '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
+            '.mp4': 'video/mp4', '.webm': 'video/webm', '.ogg': 'video/ogg',
+            '.mov': 'video/quicktime', '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
         }
         tipo_mime = tipos_mime.get(extension, 'application/octet-stream')
         try:

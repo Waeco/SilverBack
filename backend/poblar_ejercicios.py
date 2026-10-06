@@ -76,7 +76,18 @@ def _enriquecer_lote(pendientes, cursor, conn):
             if img_url or vid_url:
                 try:
                     cur = conn.cursor()
-                    cur.execute("UPDATE ejercicios SET imagen_url=%s, video_url=%s WHERE id=%s", (img_url, vid_url, ej_id))
+                    # Solo se refresca lo que está vacío o vino de wger: así NO se pisan las
+                    # imágenes/videos que el nutriólogo subió o enlazó a mano (/uploads/..., YouTube, etc.)
+                    # y, si wger no trae uno de los dos, se conserva el que ya había.
+                    cur.execute(
+                        "UPDATE ejercicios SET "
+                        "imagen_url = IF(imagen_url IS NULL OR imagen_url = '' OR imagen_url LIKE '%%wger.de%%', "
+                        "COALESCE(%s, imagen_url), imagen_url), "
+                        "video_url = IF(video_url IS NULL OR video_url = '' OR video_url LIKE '%%wger.de%%', "
+                        "COALESCE(%s, video_url), video_url) "
+                        "WHERE id=%s",
+                        (img_url, vid_url, ej_id)
+                    )
                     cur.close()
                     actualizados += 1
                 except Exception:

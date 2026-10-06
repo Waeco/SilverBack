@@ -14,6 +14,7 @@ import PaginaAdminUsuarios from './paginas/PaginaAdminUsuarios'
 import PaginaRutina from './paginas/PaginaRutina'
 import PaginaHistorialMedico from './paginas/PaginaHistorialMedico'
 import PaginaMensajes from './paginas/PaginaMensajes'
+import PaginaMultimediaEjercicios from './paginas/PaginaMultimediaEjercicios'
 import PaginaRecuperarPassword from './paginas/PaginaRecuperarPassword'
 import PaginaRestablecerPassword from './paginas/PaginaRestablecerPassword'
 import PaginaVerificarCorreo from './paginas/PaginaVerificarCorreo'
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/admin/usuarios" element={<RutaProtegida><PaginaAdminUsuarios /></RutaProtegida>} />
         <Route path="/historial" element={<RutaProtegida><PaginaHistorialMedico /></RutaProtegida>} />
         <Route path="/historial/:idPaciente" element={<RutaProtegida><PaginaHistorialMedico /></RutaProtegida>} />
+        <Route path="/ejercicios/multimedia" element={<RutaProtegida><PaginaMultimediaEjercicios /></RutaProtegida>} />
         <Route path="/mensajes" element={<RutaProtegida><PaginaMensajes /></RutaProtegida>} />
         <Route path="/mensajes/:idPaciente" element={<RutaProtegida><PaginaMensajes /></RutaProtegida>} />
         <Route path="/" element={<Landing />} />

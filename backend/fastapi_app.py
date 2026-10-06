@@ -2,11 +2,14 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 from configuracion_bd import obtener_conexion
+import re
+import uuid
+from urllib.parse import urlparse
 
 app = FastAPI(title="SilverBack API - FastAPI (Ejercicios y Rutinas)")
 
@@ -16,6 +19,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Carpeta compartida con servidor.py (mismo volumen de proyecto), que la sirve
+# como estática bajo /uploads/rutinas/<archivo>.
+RUTA_UPLOADS_RUTINAS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'rutinas')
+os.makedirs(RUTA_UPLOADS_RUTINAS, exist_ok=True)
+EXTENSIONES_VIDEO_PERMITIDAS = {'.mp4', '.mov', '.webm', '.ogg', '.avi', '.mkv'}
+TAMANO_MAXIMO_VIDEO = 100 * 1024 * 1024  # 100 MB
+EXTENSIONES_IMAGEN_PERMITIDAS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+TAMANO_MAXIMO_IMAGEN = 5 * 1024 * 1024  # 5 MB
+PREFIJO_PUBLICO_RUTINAS = '/uploads/rutinas/'
+ROLES_GESTION_MULTIMEDIA = ('nutriologo', 'admin')
+TAMANO_BLOQUE_LECTURA = 1024 * 1024  # 1 MB
 
 # --- Esquemas Pydantic ---
 
@@ -73,6 +88,212 @@ async def buscar_ejercicios(q: str = Query(min_length=3)):
         )
         resultados = cursor.fetchall()
         return resultados
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# --- Multimedia de ejercicios (imágenes/videos que sube el nutriólogo) ---
+
+_RE_YOUTUBE = re.compile(
+    r'(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|embed/|live/)|youtu\.be/)([A-Za-z0-9_-]{11})'
+)
+
+
+def _extension_imagen_real(cabecera: bytes) -> Optional[str]:
+    """Detecta el tipo REAL de imagen por sus primeros bytes (no confiamos en la extensión)."""
+    if cabecera.startswith(b'\xff\xd8\xff'):
+        return '.jpg'
+    if cabecera.startswith(b'\x89PNG\r\n\x1a\n'):
+        return '.png'
+    if cabecera.startswith((b'GIF87a', b'GIF89a')):
+        return '.gif'
+    if cabecera[:4] == b'RIFF' and cabecera[8:12] == b'WEBP':
+        return '.webp'
+    return None
+
+
+def _borrar_archivo_local(url: Optional[str]):
+    """Borra un archivo de uploads/rutinas. Solo actúa sobre URLs locales y usa únicamente
+    el nombre del archivo, así que no puede salirse de la carpeta."""
+    if not url or not url.startswith(PREFIJO_PUBLICO_RUTINAS):
+        return
+    ruta = os.path.join(RUTA_UPLOADS_RUTINAS, os.path.basename(url))
+    try:
+        if os.path.isfile(ruta):
+            os.remove(ruta)
+    except OSError as e:
+        print(f"[Multimedia] No se pudo borrar {ruta}: {e}")
+
+
+def _url_sigue_en_uso(cursor, url: str) -> bool:
+    """True si algún ejercicio o rutina asignada todavía apunta a esa URL."""
+    cursor.execute(
+        "SELECT (SELECT COUNT(*) FROM ejercicios WHERE imagen_url=%s OR video_url=%s) + "
+        "(SELECT COUNT(*) FROM detalles_rutina WHERE imagen_url=%s OR video_url=%s) AS n",
+        (url, url, url, url)
+    )
+    fila = cursor.fetchone()
+    return bool(fila and fila['n'])
+
+
+def _exigir_permiso_multimedia(cursor, id_usuario: int):
+    cursor.execute("SELECT rol, activo FROM usuarios WHERE id_usuario=%s", (id_usuario,))
+    usuario = cursor.fetchone()
+    if not usuario or not usuario['activo'] or usuario['rol'] not in ROLES_GESTION_MULTIMEDIA:
+        raise HTTPException(status_code=403, detail="Solo los nutriólogos pueden gestionar el multimedia de los ejercicios.")
+
+
+async def _guardar_archivo_subido(archivo: UploadFile, es_imagen: bool) -> str:
+    """Guarda el archivo en uploads/rutinas leyendo por bloques (sin cargarlo completo en memoria).
+    Devuelve la URL pública relativa (/uploads/rutinas/<uuid>.<ext>)."""
+    extension_original = os.path.splitext(archivo.filename or "")[1].lower()
+    validas = EXTENSIONES_IMAGEN_PERMITIDAS if es_imagen else EXTENSIONES_VIDEO_PERMITIDAS
+    limite = TAMANO_MAXIMO_IMAGEN if es_imagen else TAMANO_MAXIMO_VIDEO
+    nombre_tipo = "imagen" if es_imagen else "video"
+
+    if extension_original not in validas:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato de {nombre_tipo} no permitido. Usa: {', '.join(sorted(validas))}"
+        )
+
+    primer_bloque = await archivo.read(TAMANO_BLOQUE_LECTURA)
+    if not primer_bloque:
+        raise HTTPException(status_code=400, detail=f"El archivo de {nombre_tipo} está vacío.")
+
+    extension = extension_original
+    if es_imagen:
+        extension = _extension_imagen_real(primer_bloque)
+        if not extension:
+            raise HTTPException(status_code=400, detail="El archivo no es una imagen válida (JPG, PNG, GIF o WEBP).")
+
+    nombre_archivo = f"{uuid.uuid4().hex}{extension}"
+    ruta_completa = os.path.join(RUTA_UPLOADS_RUTINAS, nombre_archivo)
+    total = 0
+    try:
+        with open(ruta_completa, "wb") as f:
+            bloque = primer_bloque
+            while bloque:
+                total += len(bloque)
+                if total > limite:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"El {nombre_tipo} no debe superar los {limite // (1024 * 1024)} MB."
+                    )
+                f.write(bloque)
+                bloque = await archivo.read(TAMANO_BLOQUE_LECTURA)
+    except HTTPException:
+        _borrar_archivo_local(f"{PREFIJO_PUBLICO_RUTINAS}{nombre_archivo}")
+        raise
+    except Exception as e:
+        _borrar_archivo_local(f"{PREFIJO_PUBLICO_RUTINAS}{nombre_archivo}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar el {nombre_tipo}: {str(e)}")
+
+    return f"{PREFIJO_PUBLICO_RUTINAS}{nombre_archivo}"
+
+
+def _normalizar_url_imagen(url: str) -> str:
+    url = url.strip()
+    partes = urlparse(url)
+    if partes.scheme not in ('http', 'https') or not partes.netloc:
+        raise HTTPException(status_code=400, detail="El enlace de la imagen debe empezar con http:// o https://")
+    if len(url) > 500:
+        raise HTTPException(status_code=400, detail="El enlace de la imagen es demasiado largo (máx. 500 caracteres).")
+    return url
+
+
+def _normalizar_url_video(url: str) -> str:
+    url = url.strip()
+    partes = urlparse(url)
+    if partes.scheme not in ('http', 'https') or not partes.netloc:
+        raise HTTPException(status_code=400, detail="El enlace del video debe empezar con http:// o https://")
+    if len(url) > 500:
+        raise HTTPException(status_code=400, detail="El enlace del video es demasiado largo (máx. 500 caracteres).")
+    host = (partes.hostname or '').lower()
+    if host in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'):
+        coincidencia = _RE_YOUTUBE.search(url)
+        if not coincidencia:
+            raise HTTPException(status_code=400, detail="No se pudo reconocer el enlace de YouTube.")
+        # Forma canónica: es la que sabe convertir a embed el reproductor del frontend.
+        return f"https://www.youtube.com/watch?v={coincidencia.group(1)}"
+    if os.path.splitext(partes.path)[1].lower() in EXTENSIONES_VIDEO_PERMITIDAS:
+        return url
+    raise HTTPException(
+        status_code=400,
+        detail="Solo se aceptan enlaces de YouTube o enlaces directos a un archivo de video (.mp4, .webm, ...)."
+    )
+
+
+_SQL_SIN_VIDEO = "(video_url IS NULL OR video_url = '')"
+_SQL_SIN_IMAGEN = "(imagen_url IS NULL OR imagen_url = '')"
+
+
+@app.get("/api/ejercicios/multimedia")
+async def listar_multimedia_ejercicios(
+    q: Optional[str] = Query(default=None, max_length=100),
+    estado: str = Query(default="todos", pattern="^(todos|pendientes|sin_video|sin_imagen|completos)$"),
+    limite: int = Query(default=24, ge=1, le=100),
+    pagina: int = Query(default=1, ge=1),
+):
+    """Catálogo de ejercicios para el apartado de multimedia. Permite filtrar los que
+    no tienen imagen y/o video. Los contadores del resumen respetan la búsqueda `q`."""
+    conn = obtener_conexion()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Error de conexión a BD")
+    cursor = conn.cursor(dictionary=True)
+    try:
+        condiciones_busqueda = ""
+        params_busqueda = []
+        if q and q.strip():
+            patron = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            condiciones_busqueda = "WHERE nombre LIKE %s"
+            params_busqueda.append(patron)
+
+        cursor.execute(
+            f"SELECT COUNT(*) AS total, "
+            f"COALESCE(SUM(CASE WHEN {_SQL_SIN_VIDEO} THEN 1 ELSE 0 END), 0) AS sin_video, "
+            f"COALESCE(SUM(CASE WHEN {_SQL_SIN_IMAGEN} THEN 1 ELSE 0 END), 0) AS sin_imagen, "
+            f"COALESCE(SUM(CASE WHEN {_SQL_SIN_VIDEO} OR {_SQL_SIN_IMAGEN} THEN 1 ELSE 0 END), 0) AS pendientes "
+            f"FROM ejercicios {condiciones_busqueda}",
+            params_busqueda
+        )
+        fila = cursor.fetchone() or {}
+        resumen = {
+            "total": int(fila.get("total") or 0),
+            "sin_video": int(fila.get("sin_video") or 0),
+            "sin_imagen": int(fila.get("sin_imagen") or 0),
+            "pendientes": int(fila.get("pendientes") or 0),
+        }
+        resumen["completos"] = resumen["total"] - resumen["pendientes"]
+
+        filtros_estado = {
+            "pendientes": f"({_SQL_SIN_VIDEO} OR {_SQL_SIN_IMAGEN})",
+            "sin_video": _SQL_SIN_VIDEO,
+            "sin_imagen": _SQL_SIN_IMAGEN,
+            "completos": f"(NOT {_SQL_SIN_VIDEO} AND NOT {_SQL_SIN_IMAGEN})",
+        }
+        condiciones = []
+        if condiciones_busqueda:
+            condiciones.append("nombre LIKE %s")
+        if estado in filtros_estado:
+            condiciones.append(filtros_estado[estado])
+        donde = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
+        total_filtrado = resumen["total"] if estado == "todos" else resumen[estado]
+
+        cursor.execute(
+            f"SELECT id, wger_id, nombre, LEFT(descripcion, 200) AS descripcion, imagen_url, video_url "
+            f"FROM ejercicios {donde} ORDER BY nombre ASC LIMIT %s OFFSET %s",
+            params_busqueda + [limite, (pagina - 1) * limite]
+        )
+        items = cursor.fetchall()
+        return {
+            "items": items,
+            "total": total_filtrado,
+            "pagina": pagina,
+            "limite": limite,
+            "resumen": resumen,
+        }
     finally:
         cursor.close()
         conn.close()
@@ -535,6 +756,147 @@ async def quitar_nutriologo(id_paciente: int):
         )
         conn.commit()
         return {"status": "success", "message": "Nutriólogo removido correctamente."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/ejercicios/{id}/multimedia")
+async def guardar_multimedia_ejercicio(
+    id: int,
+    id_usuario: int = Form(...),
+    imagen: Optional[UploadFile] = File(default=None),
+    video: Optional[UploadFile] = File(default=None),
+    imagen_externa: Optional[str] = Form(default=None),
+    video_externo: Optional[str] = Form(default=None),
+):
+    """Sube (o enlaza) la imagen y/o el video de un ejercicio del catálogo.
+    Se guarda en el catálogo, así que queda disponible para todas las rutinas futuras;
+    además se completa en las rutinas ya asignadas que tenían ese campo vacío."""
+    hay_imagen_archivo = bool(imagen and imagen.filename)
+    hay_video_archivo = bool(video and video.filename)
+    imagen_externa = (imagen_externa or "").strip()
+    video_externo = (video_externo or "").strip()
+
+    if not (hay_imagen_archivo or hay_video_archivo or imagen_externa or video_externo):
+        raise HTTPException(status_code=400, detail="No se envió ninguna imagen ni video.")
+    if hay_imagen_archivo and imagen_externa:
+        raise HTTPException(status_code=400, detail="Para la imagen elige un archivo o un enlace, no ambos.")
+    if hay_video_archivo and video_externo:
+        raise HTTPException(status_code=400, detail="Para el video elige un archivo o un enlace, no ambos.")
+
+    nueva_imagen = _normalizar_url_imagen(imagen_externa) if imagen_externa else None
+    nuevo_video = _normalizar_url_video(video_externo) if video_externo else None
+
+    conn = obtener_conexion()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Error de conexión a BD")
+    cursor = conn.cursor(dictionary=True)
+    archivos_nuevos = []
+    try:
+        _exigir_permiso_multimedia(cursor, id_usuario)
+
+        cursor.execute("SELECT id, nombre, imagen_url, video_url FROM ejercicios WHERE id=%s", (id,))
+        ejercicio = cursor.fetchone()
+        if not ejercicio:
+            raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+
+        if hay_imagen_archivo:
+            nueva_imagen = await _guardar_archivo_subido(imagen, es_imagen=True)
+            archivos_nuevos.append(nueva_imagen)
+        if hay_video_archivo:
+            nuevo_video = await _guardar_archivo_subido(video, es_imagen=False)
+            archivos_nuevos.append(nuevo_video)
+
+        resultado = {"imagen_url": ejercicio["imagen_url"], "video_url": ejercicio["video_url"]}
+        reemplazadas = []
+        # `campo` sale de esta tupla fija (nunca del usuario), por eso es seguro interpolarlo.
+        for campo, nueva in (("imagen_url", nueva_imagen), ("video_url", nuevo_video)):
+            if not nueva:
+                continue
+            anterior = ejercicio[campo] or ""
+            cursor.execute(f"UPDATE ejercicios SET {campo}=%s WHERE id=%s", (nueva, id))
+            cursor.execute(
+                f"UPDATE detalles_rutina SET {campo}=%s "
+                f"WHERE id_ejercicio=%s AND nombre_ejercicio=%s "
+                f"AND ({campo} IS NULL OR {campo}='' OR {campo}=%s)",
+                (nueva, id, ejercicio["nombre"], anterior)
+            )
+            resultado[campo] = nueva
+            if anterior and anterior != nueva:
+                reemplazadas.append(anterior)
+        conn.commit()
+
+        for anterior in reemplazadas:
+            if not _url_sigue_en_uso(cursor, anterior):
+                _borrar_archivo_local(anterior)
+
+        return {
+            "status": "success",
+            "id": id,
+            "nombre": ejercicio["nombre"],
+            "imagen_url": resultado["imagen_url"],
+            "video_url": resultado["video_url"],
+        }
+    except HTTPException:
+        conn.rollback()
+        for url in archivos_nuevos:
+            _borrar_archivo_local(url)
+        raise
+    except Exception as e:
+        conn.rollback()
+        for url in archivos_nuevos:
+            _borrar_archivo_local(url)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.delete("/api/ejercicios/{id}/multimedia/{tipo}")
+async def eliminar_multimedia_ejercicio(
+    id: int,
+    tipo: Literal["imagen", "video"],
+    id_usuario: int = Query(...),
+):
+    """Quita la imagen o el video de un ejercicio (y de sus rutinas asignadas)."""
+    campo = "imagen_url" if tipo == "imagen" else "video_url"
+    conn = obtener_conexion()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Error de conexión a BD")
+    cursor = conn.cursor(dictionary=True)
+    try:
+        _exigir_permiso_multimedia(cursor, id_usuario)
+
+        cursor.execute("SELECT id, nombre, imagen_url, video_url FROM ejercicios WHERE id=%s", (id,))
+        ejercicio = cursor.fetchone()
+        if not ejercicio:
+            raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+
+        anterior = ejercicio[campo] or ""
+        if anterior:
+            cursor.execute(f"UPDATE ejercicios SET {campo}=NULL WHERE id=%s", (id,))
+            cursor.execute(
+                f"UPDATE detalles_rutina SET {campo}='' "
+                f"WHERE id_ejercicio=%s AND nombre_ejercicio=%s AND {campo}=%s",
+                (id, ejercicio["nombre"], anterior)
+            )
+            conn.commit()
+            if not _url_sigue_en_uso(cursor, anterior):
+                _borrar_archivo_local(anterior)
+
+        return {
+            "status": "success",
+            "id": id,
+            "imagen_url": None if campo == "imagen_url" else ejercicio["imagen_url"],
+            "video_url": None if campo == "video_url" else ejercicio["video_url"],
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))

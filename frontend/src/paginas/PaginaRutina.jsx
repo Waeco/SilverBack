@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, Dumbbell, Plus, Trash2, Search, X, Save, Target, Clock, ChevronDown, ChevronUp, AlertTriangle, Calendar, TrendingUp } from 'lucide-react'
 import { useAutenticacion } from '../context/ContextoAutenticacion'
-import { obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast, buscarEjerciciosFast, obtenerUsuario } from '../servicios/ApiServicio'
+import { obtenerRutinaPacienteFast, crearRutinaFast, desactivarRutinaFast, buscarEjerciciosFast, obtenerUsuario, urlArchivo } from '../servicios/ApiServicio'
 import { alertaExito, alertaError } from '../servicios/AlertasServicio'
 
 export default function PaginaRutina() {
@@ -324,7 +324,7 @@ export default function PaginaRutina() {
                           {item.imagen_url && (
                             <div className="mt-3 rounded-xl overflow-hidden border border-gray-800/30">
                               <img
-                                src={item.imagen_url}
+                                src={urlArchivo(item.imagen_url)}
                                 alt={item.nombre_ejercicio}
                                 className="w-full h-auto max-h-80 object-contain bg-gray-900"
                                 loading="lazy"
@@ -343,7 +343,7 @@ export default function PaginaRutina() {
                                 />
                               ) : (
                                 <video
-                                  src={item.video_url}
+                                  src={urlArchivo(item.video_url)}
                                   className="w-full h-full"
                                   controls
                                   playsInline
